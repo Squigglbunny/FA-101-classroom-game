@@ -1,1 +1,32 @@
-html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FA 101 Canvas</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #001a33; color: white; font-family: sans-serif; }
+        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; }
+        canvas { border: 1px solid #222; }
+        button { cursor: pointer; margin: 2px; padding: 5px 10px; }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <h3>Ocean Controls</h3>
+    <button onclick="addAnimal('assets/orca1.png')">Add Orca</button>
+    <button onclick="addAnimal('assets/crab.png')">Add Crab</button>
+    <button onclick="addAnimal('assets/octopus.png')">Add Octopus</button>
+    <hr>
+    <button onclick="changeDepth('front')">Bring to Front</button>
+    <button onclick="changeDepth('back')">Send to Back</button>
+</div>
+
+<canvas id="oceanCanvas"></canvas>
+
+<script src="main.js"></script>
+</body>
+</html>
