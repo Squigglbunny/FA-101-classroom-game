@@ -75,3 +75,9 @@ function changeDepth(dir) {
     dir === 'front' ? active.bringToFront() : active.sendToBack();
     updateFirebase(active); 
 }
+
+new QRCode(document.getElementById("qrcode"), {
+    text: window.location.href,
+    width: 128,
+    height: 128
+});
