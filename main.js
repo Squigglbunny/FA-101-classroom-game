@@ -1,17 +1,18 @@
 // ============================================================
 //  main.js — Marine Ecosystem Classroom Game
-//  Rules:
-//   • Clicking an animal button shows a confirm modal first.
-//   • Once placed, objects are fully locked (no move/scale/rotate).
-//   • Bring to Front / Send to Back are stored in Firebase so
-//     z-order is consistent across all devices.
-//   • Delete Selected and Reset All require a teacher password.
+//
+//  Flow:
+//   1. Student clicks an animal button → a staging copy appears
+//      on their local canvas, fully editable (move/scale/rotate).
+//   2. They click "Place It!" → the final position is written to
+//      Firebase and locked for everyone, including them.
+//   3. "Cancel" removes the staging object without touching Firebase.
+//
+//  Teacher actions (Delete, Reset All) require a password.
+//  z-order (Front/Back) is stored in Firebase so all devices agree.
 // ============================================================
 
-// ─────────────────────────────────────────────────────────────
-// TEACHER PASSWORD — change this to whatever you like
-// ─────────────────────────────────────────────────────────────
-const TEACHER_PASSWORD = 'ocean123';
+const TEACHER_PASSWORD = 'ocean123'; // ← change this
 
 
 // ── 1. FIREBASE ──────────────────────────────────────────────
@@ -34,8 +35,7 @@ const objectsRef = db.ref('marine-objects');
 const canvas = new fabric.Canvas('oceanCanvas', {
     width:  window.innerWidth,
     height: window.innerHeight,
-    // Disable the default selection box — objects are locked anyway
-    selection: false
+    selection: false   // no rubber-band multi-select
 });
 
 window.addEventListener('resize', () => {
@@ -65,71 +65,120 @@ marineFiles.forEach(fileName => {
     const base  = fileName.replace(/\.[^.]+$/, '');
     const label = base.replace(/_/g, ' ').replace(/([a-z])(\d)/g, '$1 $2');
     btn.textContent = label.charAt(0).toUpperCase() + label.slice(1);
-    btn.onclick = () => openConfirmModal(`assets/${fileName}`);
+    btn.onclick = () => startStaging(`assets/${fileName}`);
     container.appendChild(btn);
 });
 
 
-// ── 4. CONFIRM-PLACEMENT MODAL ───────────────────────────────
-let pendingUrl = null;   // URL waiting for confirmation
+// ── 4. STAGING — editable object before placement ────────────
+let stagingObj = null;   // the local-only Fabric object being positioned
 
-function openConfirmModal(url) {
-    pendingUrl = url;
-    document.getElementById('confirm-preview').src = url;
-    document.getElementById('confirm-modal').classList.add('active');
-}
+function startStaging(url) {
+    // Only one staging object at a time
+    if (stagingObj) cancelPlace();
 
-function cancelPlace() {
-    pendingUrl = null;
-    document.getElementById('confirm-modal').classList.remove('active');
+    fabric.Image.fromURL(url, (img) => {
+        img.set({
+            left:       Math.round(window.innerWidth  * 0.3),
+            top:        Math.round(window.innerHeight * 0.3),
+            scaleX:     0.5,
+            scaleY:     0.5,
+            angle:      0,
+            opacity:    0.75,          // visual hint: "not yet placed"
+            selectable: true,
+            evented:    true,
+            hasControls: true,
+            hasBorders:  true,
+            id:         '__staging__'  // special marker
+        });
+
+        stagingObj = img;
+        canvas.add(img);
+        canvas.setActiveObject(img);
+        canvas.renderAll();
+
+        // Show staging UI
+        document.getElementById('staging-banner').classList.add('active');
+        document.getElementById('btn-confirm-place').classList.add('active');
+        document.getElementById('btn-cancel-place').classList.add('active');
+    }, { crossOrigin: 'anonymous' });
 }
 
 function confirmPlace() {
-    document.getElementById('confirm-modal').classList.remove('active');
-    if (!pendingUrl) return;
+    if (!stagingObj) return;
 
     const id   = 'obj_' + Date.now();
-    const zIdx = canvas.getObjects().length; // place on top of existing stack
+    const zIdx = canvas.getObjects().filter(o => o.id !== '__staging__').length;
 
+    // Write the final transform to Firebase (triggers child_added on all clients)
     objectsRef.child(id).set({
-        url:    pendingUrl,
-        left:   Math.random() * (window.innerWidth  * 0.6) + 50,
-        top:    Math.random() * (window.innerHeight * 0.6) + 50,
-        scaleX: 0.5,
-        scaleY: 0.5,
-        angle:  0,
+        url:    stagingObj._element.src,
+        left:   Math.round(stagingObj.left),
+        top:    Math.round(stagingObj.top),
+        scaleX: stagingObj.scaleX,
+        scaleY: stagingObj.scaleY,
+        angle:  stagingObj.angle,
         zIndex: zIdx
     });
 
-    pendingUrl = null;
+    // Remove the staging ghost (the locked version will arrive via child_added)
+    canvas.remove(stagingObj);
+    stagingObj = null;
+    hideStagingUI();
+    canvas.renderAll();
+}
+
+function cancelPlace() {
+    if (stagingObj) {
+        canvas.remove(stagingObj);
+        canvas.discardActiveObject();
+        stagingObj = null;
+        canvas.renderAll();
+    }
+    hideStagingUI();
+}
+
+function hideStagingUI() {
+    document.getElementById('staging-banner').classList.remove('active');
+    document.getElementById('btn-confirm-place').classList.remove('active');
+    document.getElementById('btn-cancel-place').classList.remove('active');
 }
 
 
-// ── 5. HELPERS: lock an object so it cannot be edited ────────
+// ── 5. LOCK helper ───────────────────────────────────────────
 function lockObject(obj) {
     obj.set({
-        selectable:          false,
-        evented:             false,
-        lockMovementX:       true,
-        lockMovementY:       true,
-        lockScalingX:        true,
-        lockScalingY:        true,
-        lockRotation:        true,
-        hasControls:         false,
-        hasBorders:          false,
+        selectable:    false,
+        evented:       false,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockScalingX:  true,
+        lockScalingY:  true,
+        lockRotation:  true,
+        hasControls:   false,
+        hasBorders:    false,
+        opacity:       1      // fully opaque once placed
     });
 }
 
-// Apply the stored z-order after all objects are on the canvas
+
+// ── 6. Z-ORDER helper ────────────────────────────────────────
 function applyZOrder() {
-    const objs = canvas.getObjects().slice(); // copy
-    objs.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+    const objs = canvas.getObjects()
+        .filter(o => o.id !== '__staging__')
+        .slice()
+        .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+
     objs.forEach(o => canvas.bringToFront(o));
+
+    // Keep staging object on top of everything so it stays interactive
+    if (stagingObj) canvas.bringToFront(stagingObj);
+
     canvas.renderAll();
 }
 
 
-// ── 6. FIREBASE → CANVAS: new object added ───────────────────
+// ── 7. FIREBASE → CANVAS: new object ─────────────────────────
 objectsRef.on('child_added', (snapshot) => {
     const data = snapshot.val();
     if (canvas.getObjects().find(o => o.id === snapshot.key)) return;
@@ -151,7 +200,7 @@ objectsRef.on('child_added', (snapshot) => {
 });
 
 
-// ── 7. FIREBASE → CANVAS: object updated (z-order change) ────
+// ── 8. FIREBASE → CANVAS: object updated (z-order) ───────────
 objectsRef.on('child_changed', (snapshot) => {
     const data = snapshot.val();
     const obj  = canvas.getObjects().find(o => o.id === snapshot.key);
@@ -161,44 +210,38 @@ objectsRef.on('child_changed', (snapshot) => {
 });
 
 
-// ── 8. FIREBASE → CANVAS: object removed ─────────────────────
+// ── 9. FIREBASE → CANVAS: object removed ─────────────────────
 objectsRef.on('child_removed', (snapshot) => {
     const obj = canvas.getObjects().find(o => o.id === snapshot.key);
     if (obj) { canvas.remove(obj); canvas.renderAll(); }
 });
 
-// Clear canvas when all data is wiped
-objectsRef.on('value', (snapshot) => {
-    if (!snapshot.exists()) { canvas.clear(); canvas.renderAll(); }
-});
 
-
-// ── 9. BRING TO FRONT / SEND TO BACK ─────────────────────────
-// zIndex is stored in Firebase so every client renders the same order.
-// Since objects are locked, we use a two-step flow:
-//   1. "Select for Depth" temporarily unlocks objects for one click.
-//   2. Front/Back buttons update zIndex in Firebase → all clients re-sort.
+// ── 10. DEPTH CONTROL ────────────────────────────────────────
 let depthTargetId = null;
 
 function enableDepthSelect() {
-    // Make all objects temporarily selectable for one click
-    canvas.getObjects().forEach(o => {
-        o.set({ selectable: true, evented: true });
-    });
-    canvas.selection = false;
+    // Temporarily make locked objects clickable for one tap
+    canvas.getObjects()
+        .filter(o => o.id !== '__staging__')
+        .forEach(o => o.set({ selectable: true, evented: true }));
+
     document.getElementById('btn-select-depth').textContent = '🖱 Click an object...';
 
     canvas.once('mouse:down', (e) => {
         const clicked = canvas.findTarget(e.e);
-        // Re-lock everything
-        canvas.getObjects().forEach(o => lockObject(o));
 
-        if (!clicked || !clicked.id) {
-            document.getElementById('btn-select-depth').textContent = '🎯 Select for Depth';
-            return;
-        }
+        // Re-lock all (except any active staging object)
+        canvas.getObjects()
+            .filter(o => o.id !== '__staging__')
+            .forEach(o => lockObject(o));
+
+        document.getElementById('btn-select-depth').textContent = '🎯 Select for Depth';
+
+        if (!clicked || !clicked.id || clicked.id === '__staging__') return;
+
         depthTargetId = clicked.id;
-        document.getElementById('btn-select-depth').textContent = `Selected: ${clicked.id.slice(-6)}`;
+        document.getElementById('btn-select-depth').textContent = `✔ Selected`;
         document.getElementById('btn-front').disabled = false;
         document.getElementById('btn-back').disabled  = false;
     });
@@ -207,19 +250,14 @@ function enableDepthSelect() {
 function applyDepth(dir) {
     if (!depthTargetId) { alert('Click "Select for Depth" first.'); return; }
 
-    const allObjs = canvas.getObjects().slice();
-    allObjs.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
-
-    const idx = allObjs.findIndex(o => o.id === depthTargetId);
-    if (idx === -1) return;
+    const placed = canvas.getObjects().filter(o => o.id !== '__staging__');
+    placed.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
     if (dir === 'front') {
-        // Give it the highest zIndex
-        const maxZ = Math.max(...allObjs.map(o => o.zIndex ?? 0));
+        const maxZ = Math.max(...placed.map(o => o.zIndex ?? 0));
         objectsRef.child(depthTargetId).update({ zIndex: maxZ + 1 });
     } else {
-        // Give it the lowest zIndex
-        const minZ = Math.min(...allObjs.map(o => o.zIndex ?? 0));
+        const minZ = Math.min(...placed.map(o => o.zIndex ?? 0));
         objectsRef.child(depthTargetId).update({ zIndex: minZ - 1 });
     }
 
@@ -230,7 +268,7 @@ function applyDepth(dir) {
 }
 
 
-// ── 10. PASSWORD MODAL ────────────────────────────────────────
+// ── 11. PASSWORD MODAL ────────────────────────────────────────
 let pendingPasswordAction = null;
 
 function openPasswordModal(title, desc, action) {
@@ -261,26 +299,28 @@ function submitPassword() {
 }
 
 
-// ── 11. DELETE SELECTED (password-gated) ─────────────────────
-// Since objects aren't selectable normally, we do the same
-// "one-click" temporary unlock approach.
+// ── 12. DELETE SELECTED (password-gated) ─────────────────────
 let deleteTargetId = null;
 
 function askDeleteSelected() {
-    // Step 1: let the user click the object they want to delete
-    canvas.getObjects().forEach(o => o.set({ selectable: true, evented: true }));
-    canvas.selection = false;
+    canvas.getObjects()
+        .filter(o => o.id !== '__staging__')
+        .forEach(o => o.set({ selectable: true, evented: true }));
+
     document.getElementById('btn-delete').textContent = '🖱 Click object to delete...';
 
     canvas.once('mouse:down', (e) => {
         const clicked = canvas.findTarget(e.e);
-        canvas.getObjects().forEach(o => lockObject(o));
+
+        canvas.getObjects()
+            .filter(o => o.id !== '__staging__')
+            .forEach(o => lockObject(o));
+
         document.getElementById('btn-delete').textContent = '🗑 Delete Selected';
 
-        if (!clicked || !clicked.id) return;
-        deleteTargetId = clicked.id;
+        if (!clicked || !clicked.id || clicked.id === '__staging__') return;
 
-        // Step 2: ask for password
+        deleteTargetId = clicked.id;
         openPasswordModal(
             '🗑 Delete Object',
             'Enter the teacher password to delete this creature.',
@@ -293,21 +333,34 @@ function askDeleteSelected() {
 }
 
 
-// ── 12. RESET ALL (password-gated) ───────────────────────────
+// ── 13. RESET ALL (password-gated) ───────────────────────────
+// Fix: query all children explicitly, remove each one, then clear canvas.
+// Using objectsRef.remove() alone can race with the value listener.
 function askClearOcean() {
     openPasswordModal(
         '⚠ Reset Ocean',
         'Enter the teacher password to clear ALL creatures for everyone.',
         () => {
-            objectsRef.remove();
-            canvas.clear();
+            // Remove every child key individually so child_removed fires for each,
+            // clearing every connected client's canvas reliably.
+            objectsRef.once('value', (snapshot) => {
+                if (!snapshot.exists()) return;
+                const updates = {};
+                snapshot.forEach(child => { updates[child.key] = null; });
+                objectsRef.update(updates);   // batch-delete all children
+            });
+
+            // Also clear local canvas immediately (don't wait for Firebase echo)
+            canvas.getObjects()
+                .filter(o => o.id !== '__staging__')
+                .forEach(o => canvas.remove(o));
             canvas.renderAll();
         }
     );
 }
 
 
-// ── 13. QR CODE ───────────────────────────────────────────────
+// ── 14. QR CODE ───────────────────────────────────────────────
 new QRCode(document.getElementById('qrcode'), {
     text:   window.location.href,
     width:  128,
