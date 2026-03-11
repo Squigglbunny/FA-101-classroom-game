@@ -1,38 +1,62 @@
-// --- 1. FIREBASE CONFIGURATION ---
-// You will get these details from the Firebase Console (Settings > Project Settings)
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, update, remove, set } from "firebase/database";
+
+// 1. Firebase Config
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT.firebaseio.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT.appspot.com",
-    messagingSenderId: "YOUR_ID",
-    appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDbel-9z-agY4Fg0fSzKRGgfOAbz8Ken2E",
+  authDomain: "fa-101-classroom-game.firebaseapp.com",
+  databaseURL: "https://fa-101-classroom-game-default-rtdb.firebaseio.com",
+  projectId: "fa-101-classroom-game",
+  storageBucket: "fa-101-classroom-game.firebasestorage.app",
+  messagingSenderId: "357744157002",
+  appId: "1:357744157002:web:c49c360e340454f535a1b3"
 };
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const objectsRef = db.ref('marine-objects');
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const oceanRef = ref(db, 'marine-objects');
 
-// --- 2. CANVAS SETUP ---
+// 2. Setup Fabric Canvas
 const canvas = new fabric.Canvas('oceanCanvas', {
     width: window.innerWidth,
-    height: window.innerHeight,
+    height: window.innerHeight
 });
 
-// --- 3. ADDING ANIMALS ---
-function addAnimal(url) {
-    const id = 'item_' + Date.now(); // Unique ID for each object
-    fabric.Image.fromURL(url, (img) => {
-        img.set({ left: 100, top: 100, id: id });
-        canvas.add(img);
-        updateFirebase(img);
-    });
-}
+// 3. Logic to add animal to Firebase
+window.addAnimal = (url) => {
+    const id = 'obj_' + Date.now();
+    const animalData = { url, left: 100, top: 100, scaleX: 0.5, scaleY: 0.5, angle: 0 };
+    set(ref(db, 'marine-objects/' + id), animalData);
+};
 
-// --- 4. SYNCING TO FIREBASE ---
+// 4. Listen for additions from others
+onChildAdded(oceanRef, (snapshot) => {
+    const data = snapshot.val();
+    fabric.Image.fromURL(data.url, (img) => {
+        img.set({ ...data, id: snapshot.key });
+        canvas.add(img);
+    });
+});
+
+// 5. Listen for changes (moving/rotating)
+onChildChanged(oceanRef, (snapshot) => {
+    const obj = canvas.getObjects().find(o => o.id === snapshot.key);
+    if (obj) {
+        obj.set(snapshot.val());
+        canvas.renderAll();
+    }
+});
+
+// 6. Update Firebase when user moves an object
 canvas.on('object:modified', (e) => {
-    updateFirebase(e.target);
+    const obj = e.target;
+    update(ref(db, 'marine-objects/' + obj.id), {
+        left: obj.left,
+        top: obj.top,
+        scaleX: obj.scaleX,
+        scaleY: obj.scaleY,
+        angle: obj.angle
+    });
 });
 
 function updateFirebase(obj) {
