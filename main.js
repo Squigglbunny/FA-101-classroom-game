@@ -81,3 +81,11 @@ new QRCode(document.getElementById("qrcode"), {
     width: 128,
     height: 128
 });
+
+window.addEventListener('resize', () => {
+    canvas.setDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight
+    });
+    canvas.renderAll();
+});
