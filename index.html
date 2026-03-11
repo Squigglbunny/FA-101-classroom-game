@@ -5,14 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marine Ecosystem Builder</title>
 
-    <!-- Fabric.js for canvas interactions -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-
-    <!-- Firebase SDKs (compat version — works without a bundler) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-
-    <!-- QR Code generator -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <style>
@@ -25,18 +20,18 @@
             font-family: 'Segoe UI', sans-serif;
         }
 
-        /* ── Sidebar controls ── */
+        /* ── Sidebar ── */
         #controls {
             position: absolute;
             top: 10px;
             left: 10px;
             z-index: 10;
-            background: rgba(0, 10, 30, 0.85);
-            backdrop-filter: blur(6px);
+            background: rgba(0, 10, 30, 0.88);
+            backdrop-filter: blur(8px);
             padding: 12px;
             border-radius: 10px;
             border: 1px solid rgba(255,255,255,0.1);
-            width: 200px;
+            width: 210px;
             max-height: calc(100vh - 20px);
             overflow-y: auto;
         }
@@ -49,7 +44,6 @@
             color: #7ecfff;
         }
 
-        /* Animal buttons grid */
         #button-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -71,18 +65,11 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-
-        #button-container button:hover  { background: rgba(126,207,255,0.25); }
-        #button-container button:disabled { opacity: 0.4; cursor: default; }
+        #button-container button:hover { background: rgba(126,207,255,0.25); }
 
         hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 8px 0; }
 
-        /* Action buttons */
-        .action-row {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
+        .action-row { display: flex; flex-direction: column; gap: 5px; }
 
         .action-row button {
             width: 100%;
@@ -95,13 +82,15 @@
             transition: opacity 0.15s;
         }
         .action-row button:hover { opacity: 0.85; }
+        .action-row button:disabled { opacity: 0.35; cursor: default; }
 
+        #btn-select-depth { background: #2a7a55; color: #fff; }
         #btn-front  { background: #3a9eff; color: #fff; }
         #btn-back   { background: #1e5a99; color: #fff; }
         #btn-delete { background: #e05050; color: #fff; }
         #btn-reset  { background: #8b0000; color: #fff; }
 
-        /* QR code box */
+        /* ── QR Code ── */
         #qrcode {
             position: fixed;
             bottom: 10px;
@@ -112,8 +101,91 @@
             border-radius: 6px;
         }
 
-        /* Canvas fills the screen */
         canvas { display: block; }
+
+        /* ── Modal overlay ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.65);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+
+        .modal-box {
+            background: #0a1e35;
+            border: 1px solid rgba(126,207,255,0.3);
+            border-radius: 12px;
+            padding: 28px 24px;
+            width: 320px;
+            text-align: center;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+        }
+
+        .modal-box h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #7ecfff;
+            margin-bottom: 8px;
+        }
+
+        .modal-box p {
+            font-size: 13px;
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 18px;
+            line-height: 1.5;
+        }
+
+        #confirm-preview {
+            width: 110px;
+            height: 110px;
+            object-fit: contain;
+            margin: 0 auto 16px;
+            display: block;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.05);
+            padding: 6px;
+        }
+
+        .modal-box input[type="password"] {
+            width: 100%;
+            padding: 9px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(126,207,255,0.4);
+            background: rgba(255,255,255,0.07);
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+        .modal-box input[type="password"]::placeholder { color: rgba(255,255,255,0.3); }
+        .modal-box input[type="password"]:focus { border-color: #7ecfff; }
+
+        .modal-error {
+            color: #ff6b6b;
+            font-size: 12px;
+            margin-bottom: 12px;
+            min-height: 16px;
+        }
+
+        .modal-buttons { display: flex; gap: 10px; justify-content: center; }
+
+        .modal-buttons button {
+            padding: 9px 22px;
+            border-radius: 7px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: opacity 0.15s;
+        }
+        .modal-buttons button:hover { opacity: 0.85; }
+        .btn-confirm { background: #3a9eff; color: #fff; }
+        .btn-cancel  { background: rgba(255,255,255,0.12); color: #fff; }
+        .btn-danger  { background: #e05050; color: #fff; }
     </style>
 </head>
 <body>
@@ -126,21 +198,45 @@
     <hr>
 
     <div class="action-row">
-        <button id="btn-front"  onclick="changeDepth('front')">⬆ Bring to Front</button>
-        <button id="btn-back"   onclick="changeDepth('back')">⬇ Send to Back</button>
-        <button id="btn-delete" onclick="deleteSelected()">🗑 Delete Selected</button>
-        <button id="btn-reset"  onclick="clearOcean()">⚠ Reset All</button>
+        <button id="btn-select-depth" onclick="enableDepthSelect()">🎯 Select for Depth</button>
+        <button id="btn-front" onclick="applyDepth('front')" disabled>⬆ Bring to Front</button>
+        <button id="btn-back"  onclick="applyDepth('back')"  disabled>⬇ Send to Back</button>
+        <button id="btn-delete" onclick="askDeleteSelected()">🗑 Delete Selected</button>
+        <button id="btn-reset"  onclick="askClearOcean()">⚠ Reset All</button>
     </div>
 </div>
 
-<!-- ── Canvas ── -->
 <canvas id="oceanCanvas"></canvas>
-
-<!-- ── QR Code ── -->
 <div id="qrcode"></div>
 
-<!-- ── Main script ── -->
-<script src="main.js"></script>
+<!-- ── Confirm-placement modal ── -->
+<div id="confirm-modal" class="modal-overlay">
+    <div class="modal-box">
+        <h2>Place this creature?</h2>
+        <img id="confirm-preview" src="" alt="preview">
+        <p>Once placed, it <strong>cannot</strong> be moved, rotated, or edited.</p>
+        <div class="modal-buttons">
+            <button class="btn-cancel"  onclick="cancelPlace()">Cancel</button>
+            <button class="btn-confirm" onclick="confirmPlace()">Place it!</button>
+        </div>
+    </div>
+</div>
 
+<!-- ── Password modal (delete / reset) ── -->
+<div id="password-modal" class="modal-overlay">
+    <div class="modal-box">
+        <h2 id="pw-modal-title">Teacher Password</h2>
+        <p id="pw-modal-desc">Enter the password to continue.</p>
+        <input type="password" id="pw-input" placeholder="Password"
+               onkeydown="if(event.key==='Enter') submitPassword()">
+        <div class="modal-error" id="pw-error"></div>
+        <div class="modal-buttons">
+            <button class="btn-cancel" onclick="closePasswordModal()">Cancel</button>
+            <button class="btn-danger" onclick="submitPassword()">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<script src="main.js"></script>
 </body>
 </html>
