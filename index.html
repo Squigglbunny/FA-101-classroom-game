@@ -2,37 +2,145 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>FA 101 Canvas</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marine Ecosystem Builder</title>
+
+    <!-- Fabric.js for canvas interactions -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+
+    <!-- Firebase SDKs (compat version — works without a bundler) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    
+
+    <!-- QR Code generator -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    
+
     <style>
-        body { margin: 0; overflow: hidden; background: #fbfcf8; color: white; font-family: sans-serif; }
-        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; }
-        canvas { border: 1px solid #222; }
-        button { cursor: pointer; margin: 2px; padding: 5px 10px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            overflow: hidden;
+            background: #001a33;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        /* ── Sidebar controls ── */
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: rgba(0, 10, 30, 0.85);
+            backdrop-filter: blur(6px);
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.1);
+            width: 200px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+        }
+
+        #controls h3 {
+            font-size: 13px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            color: #7ecfff;
+        }
+
+        /* Animal buttons grid */
+        #button-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        #button-container button {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #fff;
+            border-radius: 6px;
+            padding: 7px 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #button-container button:hover  { background: rgba(126,207,255,0.25); }
+        #button-container button:disabled { opacity: 0.4; cursor: default; }
+
+        hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 8px 0; }
+
+        /* Action buttons */
+        .action-row {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .action-row button {
+            width: 100%;
+            padding: 7px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: opacity 0.15s;
+        }
+        .action-row button:hover { opacity: 0.85; }
+
+        #btn-front  { background: #3a9eff; color: #fff; }
+        #btn-back   { background: #1e5a99; color: #fff; }
+        #btn-delete { background: #e05050; color: #fff; }
+        #btn-reset  { background: #8b0000; color: #fff; }
+
+        /* QR code box */
+        #qrcode {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            z-index: 100;
+            background: white;
+            padding: 6px;
+            border-radius: 6px;
+        }
+
+        /* Canvas fills the screen */
+        canvas { display: block; }
     </style>
 </head>
 <body>
-    
-<div id="qrcode" style="position:fixed; bottom:10px; right:10px; z-index:100; background:white; padding:5px;"></div>
-    
+
+<!-- ── Sidebar ── -->
 <div id="controls">
-    <h3>Ocean Controls</h3>
-    <button onclick="addAnimal('assets/orca1.png')">Add Orca</button>
-    <button onclick="addAnimal('assets/crab.png')">Add Crab</button>
-    <button onclick="addAnimal('assets/octopus.png')">Add Octopus</button>
-    <button onclick="addAnimal('assets/Cl_bg.jpg')">Add Background</button>
+    <h3>🌊 Marine Life</h3>
+    <div id="button-container"></div>
+
     <hr>
-    <button onclick="changeDepth('front')">Bring to Front</button>
-    <button onclick="changeDepth('back')">Send to Back</button>
+
+    <div class="action-row">
+        <button id="btn-front"  onclick="changeDepth('front')">⬆ Bring to Front</button>
+        <button id="btn-back"   onclick="changeDepth('back')">⬇ Send to Back</button>
+        <button id="btn-delete" onclick="deleteSelected()">🗑 Delete Selected</button>
+        <button id="btn-reset"  onclick="clearOcean()">⚠ Reset All</button>
+    </div>
 </div>
 
+<!-- ── Canvas ── -->
 <canvas id="oceanCanvas"></canvas>
 
-<script type="module" src="main.js"></script>
+<!-- ── QR Code ── -->
+<div id="qrcode"></div>
+
+<!-- ── Main script ── -->
+<script src="main.js"></script>
+
 </body>
 </html>
