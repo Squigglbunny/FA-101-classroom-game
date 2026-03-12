@@ -200,25 +200,30 @@ function applyZOrder() {
         .slice()
         .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
-    // Deselect staging object BEFORE reordering — Fabric forces the active
-    // object to render on top, so we must drop selection, reorder, then restore.
-    if (stagingObj) canvas.discardActiveObject();
-
+    canvas.discardActiveObject();
     objs.forEach(o => canvas.bringToFront(o));
 
     if (stagingObj) {
         if (stagingDepth === 'back') {
             canvas.sendToBack(stagingObj);
+            // ✦ Do NOT call setActiveObject here — Fabric always renders
+            //   the active object on top, defeating the back-preview entirely.
         } else {
             canvas.bringToFront(stagingObj);
+            canvas.setActiveObject(stagingObj);
         }
-        // Restore selection so the user can still move/scale/rotate it
-        canvas.setActiveObject(stagingObj);
     }
 
     canvas.renderAll();
 }
-
+// After the user finishes moving the staging object in "back" mode,
+// drop the selection so Fabric stops rendering it in the top overlay.
+canvas.on('mouse:up', () => {
+    if (stagingObj && stagingDepth === 'back') {
+        canvas.discardActiveObject();
+        applyZOrder();
+    }
+});
 
 // ── 7. FIREBASE → CANVAS: new object ─────────────────────────
 objectsRef.on('child_added', (snapshot) => {
