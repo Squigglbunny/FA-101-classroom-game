@@ -216,6 +216,17 @@ objectsRef.on('child_removed', (snapshot) => {
     if (obj) { canvas.remove(obj); canvas.renderAll(); }
 });
 
+// When the entire ref is set to null (Reset All), clear every client's canvas
+objectsRef.on('value', (snapshot) => {
+    if (!snapshot.exists()) {
+        canvas.getObjects()
+            .filter(o => o.id !== '__staging__')
+            .slice()
+            .forEach(o => canvas.remove(o));
+        canvas.renderAll();
+    }
+});
+
 
 // ── 10. DEPTH CONTROL ────────────────────────────────────────
 let depthTargetId = null;
@@ -334,25 +345,20 @@ function askDeleteSelected() {
 
 
 // ── 13. RESET ALL (password-gated) ───────────────────────────
-// Fix: query all children explicitly, remove each one, then clear canvas.
-// Using objectsRef.remove() alone can race with the value listener.
+// objectsRef.set(null) wipes the entire node → triggers the value listener
+// on every connected client → each client clears their own canvas.
 function askClearOcean() {
     openPasswordModal(
         '⚠ Reset Ocean',
         'Enter the teacher password to clear ALL creatures for everyone.',
         () => {
-            // Remove every child key individually so child_removed fires for each,
-            // clearing every connected client's canvas reliably.
-            objectsRef.once('value', (snapshot) => {
-                if (!snapshot.exists()) return;
-                const updates = {};
-                snapshot.forEach(child => { updates[child.key] = null; });
-                objectsRef.update(updates);   // batch-delete all children
-            });
+            // Wipe Firebase completely — the value listener below handles all clients
+            objectsRef.set(null);
 
-            // Also clear local canvas immediately (don't wait for Firebase echo)
+            // Clear local canvas immediately too
             canvas.getObjects()
                 .filter(o => o.id !== '__staging__')
+                .slice()
                 .forEach(o => canvas.remove(o));
             canvas.renderAll();
         }
