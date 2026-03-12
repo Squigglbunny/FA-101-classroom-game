@@ -45,16 +45,17 @@ window.addEventListener('resize', () => {
 
 // ── 3. ANIMAL BUTTONS ────────────────────────────────────────
 const marineFiles = [
-    'cl_seal.jpg',
-    'crab.png',
-    'jellyfish.png',
-    'kelp1.png',
-    'kelp2.png',
-    'octopus.png',
-    'orca1.png',
-    'orca2.png',
-    'redthing.png',
-    'seaurchin.jpg'
+    'Seal.png',
+    'Crab.png',
+    'Jellyfish.png',
+    'Kelp1.png',
+    'Kelp2.png',
+    'Octopus.png',
+    'Orca1.png',
+    'Orca2.png',
+    'RedCoral.png',
+    'SeaUrchin.png',
+    'Starfish.png'
 ];
 
 const container = document.getElementById('button-container');
