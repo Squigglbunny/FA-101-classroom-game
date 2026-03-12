@@ -2,267 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marine Ecosystem Builder</title>
-
+    <title>FA 101 Canvas</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
+    
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            overflow: hidden;
-            background: #001a33;
-            color: white;
-            font-family: 'Segoe UI', sans-serif;
-        }
-
-        /* ── Sidebar ── */
-        #controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 10;
-            background: rgba(0, 10, 30, 0.88);
-            backdrop-filter: blur(8px);
-            padding: 12px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.1);
-            width: 210px;
-            max-height: calc(100vh - 20px);
-            overflow-y: auto;
-        }
-
-        #controls h3 {
-            font-size: 13px;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 8px;
-            color: #7ecfff;
-        }
-
-        #button-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 5px;
-            margin-bottom: 10px;
-        }
-
-        #button-container button {
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.15);
-            color: #fff;
-            border-radius: 6px;
-            padding: 7px 4px;
-            font-size: 11px;
-            cursor: pointer;
-            transition: background 0.15s;
-            text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        #button-container button:hover { background: rgba(126,207,255,0.25); }
-
-        hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 8px 0; }
-
-        /* Staging banner shown while an object is being positioned */
-        #staging-banner {
-            display: none;
-            background: rgba(58,158,255,0.2);
-            border: 1px solid #3a9eff;
-            border-radius: 6px;
-            padding: 8px;
-            margin-bottom: 8px;
-            font-size: 11px;
-            color: #7ecfff;
-            text-align: center;
-            line-height: 1.5;
-        }
-        #staging-banner.active { display: block; }
-
-        #btn-confirm-place {
-            display: none;
-            width: 100%;
-            padding: 8px;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 700;
-            background: #2ecc71;
-            color: #fff;
-            margin-bottom: 5px;
-        }
-        #btn-confirm-place.active { display: block; }
-
-        #btn-cancel-place {
-            display: none;
-            width: 100%;
-            padding: 7px;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            background: rgba(255,255,255,0.12);
-            color: #fff;
-            margin-bottom: 8px;
-        }
-        #btn-cancel-place.active { display: block; }
-
-        .action-row { display: flex; flex-direction: column; gap: 5px; }
-
-        .action-row button {
-            width: 100%;
-            padding: 7px;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            transition: opacity 0.15s;
-        }
-        .action-row button:hover { opacity: 0.85; }
-        .action-row button:disabled { opacity: 0.35; cursor: default; }
-
-        #btn-select-depth { background: #2a7a55; color: #fff; }
-        #btn-front        { background: #3a9eff; color: #fff; }
-        #btn-back         { background: #1e5a99; color: #fff; }
-        #btn-delete       { background: #e05050; color: #fff; }
-        #btn-reset        { background: #8b0000; color: #fff; }
-
-        /* ── QR Code ── */
-        #qrcode {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            z-index: 100;
-            background: white;
-            padding: 6px;
-            border-radius: 6px;
-        }
-
-        canvas { display: block; }
-
-        /* ── Password modal ── */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.65);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-overlay.active { display: flex; }
-
-        .modal-box {
-            background: #0a1e35;
-            border: 1px solid rgba(126,207,255,0.3);
-            border-radius: 12px;
-            padding: 28px 24px;
-            width: 320px;
-            text-align: center;
-            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
-        }
-
-        .modal-box h2 {
-            font-size: 16px;
-            font-weight: 700;
-            color: #7ecfff;
-            margin-bottom: 8px;
-        }
-
-        .modal-box p {
-            font-size: 13px;
-            color: rgba(255,255,255,0.7);
-            margin-bottom: 18px;
-            line-height: 1.5;
-        }
-
-        .modal-box input[type="password"] {
-            width: 100%;
-            padding: 9px 12px;
-            border-radius: 6px;
-            border: 1px solid rgba(126,207,255,0.4);
-            background: rgba(255,255,255,0.07);
-            color: #fff;
-            font-size: 14px;
-            margin-bottom: 12px;
-            outline: none;
-        }
-        .modal-box input[type="password"]::placeholder { color: rgba(255,255,255,0.3); }
-        .modal-box input[type="password"]:focus { border-color: #7ecfff; }
-
-        .modal-error {
-            color: #ff6b6b;
-            font-size: 12px;
-            margin-bottom: 12px;
-            min-height: 16px;
-        }
-
-        .modal-buttons { display: flex; gap: 10px; justify-content: center; }
-
-        .modal-buttons button {
-            padding: 9px 22px;
-            border-radius: 7px;
-            border: none;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            transition: opacity 0.15s;
-        }
-        .modal-buttons button:hover { opacity: 0.85; }
-        .btn-cancel  { background: rgba(255,255,255,0.12); color: #fff; }
-        .btn-danger  { background: #e05050; color: #fff; }
+        body { margin: 0; overflow: hidden; background: #fbfcf8; color: white; font-family: sans-serif; }
+        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; }
+        canvas { border: 1px solid #222; }
+        button { cursor: pointer; margin: 2px; padding: 5px 10px; }
     </style>
 </head>
 <body>
-
-<!-- ── Sidebar ── -->
+    
+<div id="qrcode" style="position:fixed; bottom:10px; right:10px; z-index:100; background:white; padding:5px;"></div>
+    
 <div id="controls">
-    <h3>🌊 Marine Life</h3>
-    <div id="button-container"></div>
-
-    <!-- Shown while a staging object is on canvas -->
-    <div id="staging-banner">
-        Move, rotate &amp; scale your creature, then click <strong>Place It</strong> to lock it in for everyone.
-    </div>
-    <button id="btn-confirm-place" onclick="confirmPlace()">✅ Place It!</button>
-    <button id="btn-cancel-place"  onclick="cancelPlace()">✖ Cancel</button>
-
+    <h3>Ocean Controls</h3>
+    <button onclick="addAnimal('assets/orca1.png')">Add Orca</button>
+    <button onclick="addAnimal('assets/crab.png')">Add Crab</button>
+    <button onclick="addAnimal('assets/octopus.png')">Add Octopus</button>
+    <button onclick="addAnimal('assets/Cl_bg.jpg')">Add Background</button>
     <hr>
-
-    <div class="action-row">
-        <button id="btn-select-depth" onclick="enableDepthSelect()">🎯 Select for Depth</button>
-        <button id="btn-front" onclick="applyDepth('front')" disabled>⬆ Bring to Front</button>
-        <button id="btn-back"  onclick="applyDepth('back')"  disabled>⬇ Send to Back</button>
-        <button id="btn-delete" onclick="askDeleteSelected()">🗑 Delete Selected</button>
-        <button id="btn-reset"  onclick="askClearOcean()">⚠ Reset All</button>
-    </div>
+    <button onclick="changeDepth('front')">Bring to Front</button>
+    <button onclick="changeDepth('back')">Send to Back</button>
 </div>
 
 <canvas id="oceanCanvas"></canvas>
-<div id="qrcode"></div>
-
-<!-- ── Password modal ── -->
-<div id="password-modal" class="modal-overlay">
-    <div class="modal-box">
-        <h2 id="pw-modal-title">Teacher Password</h2>
-        <p id="pw-modal-desc">Enter the password to continue.</p>
-        <input type="password" id="pw-input" placeholder="Password"
-               onkeydown="if(event.key==='Enter') submitPassword()">
-        <div class="modal-error" id="pw-error"></div>
-        <div class="modal-buttons">
-            <button class="btn-cancel" onclick="closePasswordModal()">Cancel</button>
-            <button class="btn-danger" onclick="submitPassword()">Confirm</button>
-        </div>
-    </div>
-</div>
 
 <script src="main.js"></script>
 </body>
