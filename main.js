@@ -113,14 +113,7 @@ function setStagingDepth(dir) {
     document.getElementById('btn-place-front').classList.toggle('depth-active', dir === 'front');
     document.getElementById('btn-place-back').classList.toggle('depth-active',  dir === 'back');
 
-    if (!stagingObj) return;
-
-    if (dir === 'back') {
-        canvas.sendToBack(stagingObj);
-    } else {
-        canvas.bringToFront(stagingObj);
-    }
-    canvas.renderAll();
+    applyZOrder();
 }
 
 function confirmPlace() {
