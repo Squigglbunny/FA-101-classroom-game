@@ -55,7 +55,8 @@ const marineFiles = [
     'Orca2.png',
     'RedCoral.png',
     'SeaUrchin.png',
-    'Starfish.png'
+    'Starfish.png',
+    'bg.jpg'
 ];
 
 const container = document.getElementById('button-container');
