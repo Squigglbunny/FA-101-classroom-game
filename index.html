@@ -69,7 +69,7 @@
 
         hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 8px 0; }
 
-        /* Staging banner shown while an object is being positioned */
+        /* Staging banner */
         #staging-banner {
             display: none;
             background: rgba(58,158,255,0.2);
@@ -83,6 +83,33 @@
             line-height: 1.5;
         }
         #staging-banner.active { display: block; }
+
+        /* Front / Back depth toggle row */
+        #staging-depth-row {
+            display: none;
+            gap: 5px;
+            margin-bottom: 8px;
+        }
+        #staging-depth-row.active { display: flex; }
+
+        #staging-depth-row button {
+            flex: 1;
+            padding: 7px 4px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        #staging-depth-row button:hover { background: rgba(126,207,255,0.2); }
+        #staging-depth-row button.depth-active {
+            background: rgba(58,158,255,0.35);
+            border-color: #3a9eff;
+            color: #7ecfff;
+        }
 
         #btn-confirm-place {
             display: none;
@@ -127,13 +154,8 @@
             transition: opacity 0.15s;
         }
         .action-row button:hover { opacity: 0.85; }
-        .action-row button:disabled { opacity: 0.35; cursor: default; }
 
-        #btn-select-depth { background: #2a7a55; color: #fff; }
-        #btn-front        { background: #3a9eff; color: #fff; }
-        #btn-back         { background: #1e5a99; color: #fff; }
-        #btn-delete       { background: #e05050; color: #fff; }
-        #btn-reset        { background: #8b0000; color: #fff; }
+        #btn-reset { background: #8b0000; color: #fff; }
 
         /* ── QR Code ── */
         #qrcode {
@@ -147,78 +169,6 @@
         }
 
         canvas { display: block; }
-
-        /* ── Password modal ── */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.65);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-overlay.active { display: flex; }
-
-        .modal-box {
-            background: #0a1e35;
-            border: 1px solid rgba(126,207,255,0.3);
-            border-radius: 12px;
-            padding: 28px 24px;
-            width: 320px;
-            text-align: center;
-            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
-        }
-
-        .modal-box h2 {
-            font-size: 16px;
-            font-weight: 700;
-            color: #7ecfff;
-            margin-bottom: 8px;
-        }
-
-        .modal-box p {
-            font-size: 13px;
-            color: rgba(255,255,255,0.7);
-            margin-bottom: 18px;
-            line-height: 1.5;
-        }
-
-        .modal-box input[type="password"] {
-            width: 100%;
-            padding: 9px 12px;
-            border-radius: 6px;
-            border: 1px solid rgba(126,207,255,0.4);
-            background: rgba(255,255,255,0.07);
-            color: #fff;
-            font-size: 14px;
-            margin-bottom: 12px;
-            outline: none;
-        }
-        .modal-box input[type="password"]::placeholder { color: rgba(255,255,255,0.3); }
-        .modal-box input[type="password"]:focus { border-color: #7ecfff; }
-
-        .modal-error {
-            color: #ff6b6b;
-            font-size: 12px;
-            margin-bottom: 12px;
-            min-height: 16px;
-        }
-
-        .modal-buttons { display: flex; gap: 10px; justify-content: center; }
-
-        .modal-buttons button {
-            padding: 9px 22px;
-            border-radius: 7px;
-            border: none;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            transition: opacity 0.15s;
-        }
-        .modal-buttons button:hover { opacity: 0.85; }
-        .btn-cancel  { background: rgba(255,255,255,0.12); color: #fff; }
-        .btn-danger  { background: #e05050; color: #fff; }
     </style>
 </head>
 <body>
@@ -230,39 +180,27 @@
 
     <!-- Shown while a staging object is on canvas -->
     <div id="staging-banner">
-        Move, rotate &amp; scale your creature, then click <strong>Place It</strong> to lock it in for everyone.
+        Position your creature, choose depth, then click <strong>Place It</strong>!
     </div>
+
+    <!-- Front / Back toggle — only visible while staging -->
+    <div id="staging-depth-row">
+        <button id="btn-place-front" onclick="setStagingDepth('front')">⬆ Place Front</button>
+        <button id="btn-place-back"  onclick="setStagingDepth('back')">⬇ Place Back</button>
+    </div>
+
     <button id="btn-confirm-place" onclick="confirmPlace()">✅ Place It!</button>
     <button id="btn-cancel-place"  onclick="cancelPlace()">✖ Cancel</button>
 
     <hr>
 
     <div class="action-row">
-        <button id="btn-select-depth" onclick="enableDepthSelect()">🎯 Select for Depth</button>
-        <button id="btn-front" onclick="applyDepth('front')" disabled>⬆ Bring to Front</button>
-        <button id="btn-back"  onclick="applyDepth('back')"  disabled>⬇ Send to Back</button>
-        <button id="btn-delete" onclick="askDeleteSelected()">🗑 Delete Selected</button>
-        <button id="btn-reset"  onclick="askClearOcean()">⚠ Reset All</button>
+        <button id="btn-reset" onclick="clearOcean()">⚠ Reset All</button>
     </div>
 </div>
 
 <canvas id="oceanCanvas"></canvas>
 <div id="qrcode"></div>
-
-<!-- ── Password modal ── -->
-<div id="password-modal" class="modal-overlay">
-    <div class="modal-box">
-        <h2 id="pw-modal-title">Teacher Password</h2>
-        <p id="pw-modal-desc">Enter the password to continue.</p>
-        <input type="password" id="pw-input" placeholder="Password"
-               onkeydown="if(event.key==='Enter') submitPassword()">
-        <div class="modal-error" id="pw-error"></div>
-        <div class="modal-buttons">
-            <button class="btn-cancel" onclick="closePasswordModal()">Cancel</button>
-            <button class="btn-danger" onclick="submitPassword()">Confirm</button>
-        </div>
-    </div>
-</div>
 
 <script src="main.js"></script>
 </body>
