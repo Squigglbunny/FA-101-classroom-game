@@ -107,24 +107,11 @@ function startStaging(url) {
 }
 
 // Called by the Front / Back toggle buttons in the sidebar
-// Called by the Front / Back toggle buttons in the sidebar
 function setStagingDepth(dir) {
     stagingDepth = dir;
 
     document.getElementById('btn-place-front').classList.toggle('depth-active', dir === 'front');
     document.getElementById('btn-place-back').classList.toggle('depth-active',  dir === 'back');
-
-    // Calculate and assign z-index preview
-    if (stagingObj) {
-        const placed = canvas.getObjects().filter(o => o.id !== '__staging__');
-        if (dir === 'back') {
-            const minZ = placed.length ? Math.min(...placed.map(o => o.zIndex ?? 0)) : 0;
-            stagingObj.zIndex = minZ - 1;
-        } else {
-            const maxZ = placed.length ? Math.max(...placed.map(o => o.zIndex ?? 0)) : 0;
-            stagingObj.zIndex = maxZ + 1;
-        }
-    }
 
     applyZOrder();
 }
@@ -213,16 +200,20 @@ function applyZOrder() {
         .slice()
         .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
+    // Deselect staging object BEFORE reordering — Fabric forces the active
+    // object to render on top, so we must drop selection, reorder, then restore.
+    if (stagingObj) canvas.discardActiveObject();
+
     objs.forEach(o => canvas.bringToFront(o));
 
-    // Keep staging object on top so it stays interactive,
-    // UNLESS the user has chosen to preview it at the back
     if (stagingObj) {
         if (stagingDepth === 'back') {
             canvas.sendToBack(stagingObj);
         } else {
             canvas.bringToFront(stagingObj);
         }
+        // Restore selection so the user can still move/scale/rotate it
+        canvas.setActiveObject(stagingObj);
     }
 
     canvas.renderAll();
