@@ -4,15 +4,14 @@
 //  Flow:
 //   1. Student clicks an animal button → a staging copy appears
 //      on their local canvas, fully editable (move/scale/rotate).
-//   2. They click "Place It!" → the final position is written to
-//      Firebase and locked for everyone, including them.
-//   3. "Cancel" removes the staging object without touching Firebase.
+//   2. They choose Place Front or Place Back, then confirm.
+//      Place Back: the staging object renders behind all existing
+//      objects as a live preview before committing.
+//   3. The final position is written to Firebase and locked for everyone.
+//   4. "Cancel" removes the staging object without touching Firebase.
 //
-//  Teacher actions (Delete, Reset All) require a password.
-//  z-order (Front/Back) is stored in Firebase so all devices agree.
+//  Reset All has no password — button clears everything immediately.
 // ============================================================
-
-const TEACHER_PASSWORD = 'ocean123'; // ← change this
 
 
 // ── 1. FIREBASE ──────────────────────────────────────────────
@@ -35,7 +34,7 @@ const objectsRef = db.ref('marine-objects');
 const canvas = new fabric.Canvas('oceanCanvas', {
     width:  window.innerWidth,
     height: window.innerHeight,
-    selection: false   // no rubber-band multi-select
+    selection: false
 });
 
 window.addEventListener('resize', () => {
@@ -71,48 +70,74 @@ marineFiles.forEach(fileName => {
 
 
 // ── 4. STAGING — editable object before placement ────────────
-let stagingObj = null;   // the local-only Fabric object being positioned
+let stagingObj     = null;   // the local-only Fabric object being positioned
+let stagingUrl     = null;   // stored url so we don't rely on _element.src
+let stagingDepth   = 'front'; // 'front' or 'back'
 
 function startStaging(url) {
-    // Only one staging object at a time
     if (stagingObj) cancelPlace();
+
+    stagingUrl   = url;
+    stagingDepth = 'front';
 
     fabric.Image.fromURL(url, (img) => {
         img.set({
-            left:       Math.round(window.innerWidth  * 0.3),
-            top:        Math.round(window.innerHeight * 0.3),
-            scaleX:     0.5,
-            scaleY:     0.5,
-            angle:      0,
-            opacity:    0.75,          // visual hint: "not yet placed"
-            selectable: true,
-            evented:    true,
+            left:        Math.round(window.innerWidth  * 0.3),
+            top:         Math.round(window.innerHeight * 0.3),
+            scaleX:      0.5,
+            scaleY:      0.5,
+            angle:       0,
+            opacity:     1,            // fully opaque while staging
+            selectable:  true,
+            evented:     true,
             hasControls: true,
             hasBorders:  true,
-            id:         '__staging__'  // special marker
+            id:          '__staging__'
         });
 
         stagingObj = img;
         canvas.add(img);
+        canvas.bringToFront(img);      // starts at front
         canvas.setActiveObject(img);
         canvas.renderAll();
 
-        // Show staging UI
-        document.getElementById('staging-banner').classList.add('active');
-        document.getElementById('btn-confirm-place').classList.add('active');
-        document.getElementById('btn-cancel-place').classList.add('active');
+        showStagingUI();
     }, { crossOrigin: 'anonymous' });
+}
+
+// Called by the Front / Back toggle buttons in the sidebar
+function setStagingDepth(dir) {
+    stagingDepth = dir;
+
+    document.getElementById('btn-place-front').classList.toggle('depth-active', dir === 'front');
+    document.getElementById('btn-place-back').classList.toggle('depth-active',  dir === 'back');
+
+    if (!stagingObj) return;
+
+    if (dir === 'back') {
+        canvas.sendToBack(stagingObj);
+    } else {
+        canvas.bringToFront(stagingObj);
+    }
+    canvas.renderAll();
 }
 
 function confirmPlace() {
     if (!stagingObj) return;
 
-    const id   = 'obj_' + Date.now();
-    const zIdx = canvas.getObjects().filter(o => o.id !== '__staging__').length;
+    const placed = canvas.getObjects().filter(o => o.id !== '__staging__');
+    let zIdx;
 
-    // Write the final transform to Firebase (triggers child_added on all clients)
-    objectsRef.child(id).set({
-        url:    stagingObj._element.src,
+    if (stagingDepth === 'back') {
+        const minZ = placed.length ? Math.min(...placed.map(o => o.zIndex ?? 0)) : 0;
+        zIdx = minZ - 1;
+    } else {
+        const maxZ = placed.length ? Math.max(...placed.map(o => o.zIndex ?? 0)) : 0;
+        zIdx = maxZ + 1;
+    }
+
+    objectsRef.child('obj_' + Date.now()).set({
+        url:    stagingUrl,
         left:   Math.round(stagingObj.left),
         top:    Math.round(stagingObj.top),
         scaleX: stagingObj.scaleX,
@@ -121,9 +146,9 @@ function confirmPlace() {
         zIndex: zIdx
     });
 
-    // Remove the staging ghost (the locked version will arrive via child_added)
     canvas.remove(stagingObj);
-    stagingObj = null;
+    stagingObj   = null;
+    stagingUrl   = null;
     hideStagingUI();
     canvas.renderAll();
 }
@@ -133,13 +158,25 @@ function cancelPlace() {
         canvas.remove(stagingObj);
         canvas.discardActiveObject();
         stagingObj = null;
+        stagingUrl = null;
         canvas.renderAll();
     }
     hideStagingUI();
 }
 
+function showStagingUI() {
+    document.getElementById('staging-banner').classList.add('active');
+    document.getElementById('staging-depth-row').classList.add('active');
+    document.getElementById('btn-confirm-place').classList.add('active');
+    document.getElementById('btn-cancel-place').classList.add('active');
+    // Reset toggle to Front
+    document.getElementById('btn-place-front').classList.add('depth-active');
+    document.getElementById('btn-place-back').classList.remove('depth-active');
+}
+
 function hideStagingUI() {
     document.getElementById('staging-banner').classList.remove('active');
+    document.getElementById('staging-depth-row').classList.remove('active');
     document.getElementById('btn-confirm-place').classList.remove('active');
     document.getElementById('btn-cancel-place').classList.remove('active');
 }
@@ -157,7 +194,7 @@ function lockObject(obj) {
         lockRotation:  true,
         hasControls:   false,
         hasBorders:    false,
-        opacity:       1      // fully opaque once placed
+        opacity:       1
     });
 }
 
@@ -171,8 +208,15 @@ function applyZOrder() {
 
     objs.forEach(o => canvas.bringToFront(o));
 
-    // Keep staging object on top of everything so it stays interactive
-    if (stagingObj) canvas.bringToFront(stagingObj);
+    // Keep staging object on top so it stays interactive,
+    // UNLESS the user has chosen to preview it at the back
+    if (stagingObj) {
+        if (stagingDepth === 'back') {
+            canvas.sendToBack(stagingObj);
+        } else {
+            canvas.bringToFront(stagingObj);
+        }
+    }
 
     canvas.renderAll();
 }
@@ -200,7 +244,7 @@ objectsRef.on('child_added', (snapshot) => {
 });
 
 
-// ── 8. FIREBASE → CANVAS: object updated (z-order) ───────────
+// ── 8. FIREBASE → CANVAS: object updated ─────────────────────
 objectsRef.on('child_changed', (snapshot) => {
     const data = snapshot.val();
     const obj  = canvas.getObjects().find(o => o.id === snapshot.key);
@@ -216,7 +260,7 @@ objectsRef.on('child_removed', (snapshot) => {
     if (obj) { canvas.remove(obj); canvas.renderAll(); }
 });
 
-// When the entire ref is set to null (Reset All), clear every client's canvas
+// When the entire ref is wiped (Reset All), clear every client's canvas
 objectsRef.on('value', (snapshot) => {
     if (!snapshot.exists()) {
         canvas.getObjects()
@@ -228,145 +272,19 @@ objectsRef.on('value', (snapshot) => {
 });
 
 
-// ── 10. DEPTH CONTROL ────────────────────────────────────────
-let depthTargetId = null;
-
-function enableDepthSelect() {
-    // Temporarily make locked objects clickable for one tap
+// ── 10. RESET ALL (no password) ──────────────────────────────
+function clearOcean() {
+    objectsRef.set(null);
+    // Clear local canvas immediately; value listener handles all other clients
     canvas.getObjects()
         .filter(o => o.id !== '__staging__')
-        .forEach(o => o.set({ selectable: true, evented: true }));
-
-    document.getElementById('btn-select-depth').textContent = '🖱 Click an object...';
-
-    canvas.once('mouse:down', (e) => {
-        const clicked = canvas.findTarget(e.e);
-
-        // Re-lock all (except any active staging object)
-        canvas.getObjects()
-            .filter(o => o.id !== '__staging__')
-            .forEach(o => lockObject(o));
-
-        document.getElementById('btn-select-depth').textContent = '🎯 Select for Depth';
-
-        if (!clicked || !clicked.id || clicked.id === '__staging__') return;
-
-        depthTargetId = clicked.id;
-        document.getElementById('btn-select-depth').textContent = `✔ Selected`;
-        document.getElementById('btn-front').disabled = false;
-        document.getElementById('btn-back').disabled  = false;
-    });
-}
-
-function applyDepth(dir) {
-    if (!depthTargetId) { alert('Click "Select for Depth" first.'); return; }
-
-    const placed = canvas.getObjects().filter(o => o.id !== '__staging__');
-    placed.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
-
-    if (dir === 'front') {
-        const maxZ = Math.max(...placed.map(o => o.zIndex ?? 0));
-        objectsRef.child(depthTargetId).update({ zIndex: maxZ + 1 });
-    } else {
-        const minZ = Math.min(...placed.map(o => o.zIndex ?? 0));
-        objectsRef.child(depthTargetId).update({ zIndex: minZ - 1 });
-    }
-
-    depthTargetId = null;
-    document.getElementById('btn-select-depth').textContent = '🎯 Select for Depth';
-    document.getElementById('btn-front').disabled = true;
-    document.getElementById('btn-back').disabled  = true;
+        .slice()
+        .forEach(o => canvas.remove(o));
+    canvas.renderAll();
 }
 
 
-// ── 11. PASSWORD MODAL ────────────────────────────────────────
-let pendingPasswordAction = null;
-
-function openPasswordModal(title, desc, action) {
-    pendingPasswordAction = action;
-    document.getElementById('pw-modal-title').textContent = title;
-    document.getElementById('pw-modal-desc').textContent  = desc;
-    document.getElementById('pw-input').value             = '';
-    document.getElementById('pw-error').textContent       = '';
-    document.getElementById('password-modal').classList.add('active');
-    setTimeout(() => document.getElementById('pw-input').focus(), 100);
-}
-
-function closePasswordModal() {
-    pendingPasswordAction = null;
-    document.getElementById('password-modal').classList.remove('active');
-}
-
-function submitPassword() {
-    const entered = document.getElementById('pw-input').value;
-    if (entered === TEACHER_PASSWORD) {
-        closePasswordModal();
-        if (pendingPasswordAction) pendingPasswordAction();
-    } else {
-        document.getElementById('pw-error').textContent = 'Incorrect password. Try again.';
-        document.getElementById('pw-input').value = '';
-        document.getElementById('pw-input').focus();
-    }
-}
-
-
-// ── 12. DELETE SELECTED (password-gated) ─────────────────────
-let deleteTargetId = null;
-
-function askDeleteSelected() {
-    canvas.getObjects()
-        .filter(o => o.id !== '__staging__')
-        .forEach(o => o.set({ selectable: true, evented: true }));
-
-    document.getElementById('btn-delete').textContent = '🖱 Click object to delete...';
-
-    canvas.once('mouse:down', (e) => {
-        const clicked = canvas.findTarget(e.e);
-
-        canvas.getObjects()
-            .filter(o => o.id !== '__staging__')
-            .forEach(o => lockObject(o));
-
-        document.getElementById('btn-delete').textContent = '🗑 Delete Selected';
-
-        if (!clicked || !clicked.id || clicked.id === '__staging__') return;
-
-        deleteTargetId = clicked.id;
-        openPasswordModal(
-            '🗑 Delete Object',
-            'Enter the teacher password to delete this creature.',
-            () => {
-                objectsRef.child(deleteTargetId).remove();
-                deleteTargetId = null;
-            }
-        );
-    });
-}
-
-
-// ── 13. RESET ALL (password-gated) ───────────────────────────
-// objectsRef.set(null) wipes the entire node → triggers the value listener
-// on every connected client → each client clears their own canvas.
-function askClearOcean() {
-    openPasswordModal(
-        '⚠ Reset Ocean',
-        'Enter the teacher password to clear ALL creatures for everyone.',
-        () => {
-            // Wipe Firebase completely — the value listener below handles all clients
-            objectsRef.set(null);
-
-            // Clear local canvas immediately too
-            canvas.getObjects()
-                .filter(o => o.id !== '__staging__')
-                .slice()
-                .forEach(o => canvas.remove(o));
-            canvas.renderAll();
-        }
-    );
-}
-
-
-// ── 14. QR CODE ───────────────────────────────────────────────
+// ── 11. QR CODE ──────────────────────────────────────────────
 new QRCode(document.getElementById('qrcode'), {
     text:   window.location.href,
     width:  128,
