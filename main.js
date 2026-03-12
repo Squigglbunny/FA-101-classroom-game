@@ -42,6 +42,41 @@ window.addEventListener('resize', () => {
     canvas.renderAll();
 });
 
+// ── OVERLAY ──────────────────────────────────────────────
+let overlayObj = null;
+
+function initOverlay(url) {
+    fabric.Image.fromURL(url, (img) => {
+        img.set({
+            left:        0,
+            top:         0,
+            scaleX:      canvas.width / img.width,
+            scaleY:      canvas.height / img.height,
+            selectable:  false,
+            evented:     false,
+            hasControls: false,
+            hasBorders:  false,
+            id:          '__overlay__',
+            opacity:     0.5  // default transparency
+        });
+        overlayObj = img;
+        canvas.add(img);
+        canvas.sendToBack(img);
+        canvas.renderAll();
+    }, { crossOrigin: 'anonymous' });
+}
+
+function setOverlayOpacity(value) {
+    if (overlayObj) {
+        overlayObj.set({ opacity: parseFloat(value) });
+        canvas.renderAll();
+    }
+}
+
+// Initialize overlay on page load
+window.addEventListener('load', () => {
+    initOverlay('assets/Michelangelo.jpg');
+});
 
 // ── 3. ANIMAL BUTTONS ────────────────────────────────────────
 const marineFiles = [
