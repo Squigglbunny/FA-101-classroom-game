@@ -84,31 +84,40 @@
         }
         #staging-banner.active { display: block; }
 
-        /* Front / Back depth toggle row */
+        /* Layer slider row — replaces Front/Back buttons */
         #staging-depth-row {
             display: none;
-            gap: 5px;
+            flex-direction: column;
+            gap: 4px;
             margin-bottom: 8px;
         }
         #staging-depth-row.active { display: flex; }
 
-        #staging-depth-row button {
-            flex: 1;
-            padding: 7px 4px;
-            border-radius: 6px;
-            border: 1px solid rgba(255,255,255,0.2);
-            background: rgba(255,255,255,0.08);
-            color: #fff;
+        #staging-depth-row label {
             font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.15s, border-color 0.15s;
-        }
-        #staging-depth-row button:hover { background: rgba(126,207,255,0.2); }
-        #staging-depth-row button.depth-active {
-            background: rgba(58,158,255,0.35);
-            border-color: #3a9eff;
             color: #7ecfff;
+            font-weight: 600;
+        }
+
+        #layer-slider {
+            width: 100%;
+            accent-color: #3a9eff;
+            cursor: pointer;
+        }
+
+        #staging-depth-row .slider-ends {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: rgba(255,255,255,0.45);
+        }
+
+        #layer-label {
+            text-align: center;
+            font-size: 11px;
+            font-weight: 700;
+            color: #7ecfff;
+            min-height: 16px;
         }
 
         #btn-confirm-place {
@@ -180,41 +189,47 @@
 
     <!-- Shown while a staging object is on canvas -->
     <div id="staging-banner">
-        Position your creature, choose depth, then click <strong>Place It</strong>!
+        Position your creature, choose a layer, then click <strong>Place It</strong>!
     </div>
 
-    <!-- Front / Back toggle — only visible while staging -->
+    <!-- Layer position slider — visible only while staging -->
     <div id="staging-depth-row">
-        <button id="btn-place-front" onclick="setStagingDepth('front')">⬆ Place Front</button>
-        <button id="btn-place-back"  onclick="setStagingDepth('back')">⬇ Place Back</button>
+        <label>Layer Position:</label>
+        <input
+            type="range"
+            id="layer-slider"
+            min="1"
+            max="1"
+            value="1"
+            oninput="onLayerSliderInput(this.value)"
+        />
+        <div id="layer-label">Front</div>
+        <div class="slider-ends">
+            <span>◀ Back</span>
+            <span>Front ▶</span>
+        </div>
     </div>
 
     <button id="btn-confirm-place" onclick="confirmPlace()">✅ Place It!</button>
     <button id="btn-cancel-place"  onclick="cancelPlace()">✖ Cancel</button>
 
     <hr>
-    <div id="overlay-controls" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;">
-        <label for="overlay-opacity">Overlay Transparency:</label>
-        <input 
-            type="range" 
-            id="overlay-opacity" 
-            min="0" 
-            max="1" 
-            step="0.1" 
+    <div id="overlay-controls" style="margin-top: 8px;">
+        <label for="overlay-opacity" style="font-size:11px; color:#7ecfff; font-weight:600; display:block; margin-bottom:4px;">Overlay Transparency:</label>
+        <input
+            type="range"
+            id="overlay-opacity"
+            min="0"
+            max="1"
+            step="0.1"
             value="0.5"
-            onchange="setOverlayOpacity(this.value)"
-            oninput="setOverlayOpacity(this.value)"
-            style="width: 100%;"
+            oninput="setOverlayOpacity(this.value); document.getElementById('opacity-display').textContent = Math.round(this.value * 100) + '%';"
+            style="width: 100%; accent-color: #3a9eff;"
         />
-        <span id="opacity-display">50%</span>
+        <span id="opacity-display" style="font-size:11px; color:rgba(255,255,255,0.6);">50%</span>
     </div>
-    <script>
-        document.getElementById('overlay-opacity').addEventListener('input', (e) => {
-        const percent = Math.round(parseFloat(e.target.value) * 100);
-        document.getElementById('opacity-display').textContent = percent + '%';
-    });
-    </script>
 
+    <hr>
     <div class="action-row">
         <button id="btn-reset" onclick="clearOcean()">⚠ Reset All</button>
     </div>
