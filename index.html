@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Marine Ecosystem Builder</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
@@ -13,27 +13,41 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        body {
+        html, body {
+            width: 100%;
+            height: 100%;
             overflow: hidden;
             background: #001a33;
             color: white;
             font-family: 'Segoe UI', sans-serif;
+            touch-action: none;
         }
 
-        /* ── Sidebar ── */
+        /* Centre Fabric's canvas-container in the viewport */
+        .canvas-container {
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            box-shadow: 0 0 0 2px rgba(126,207,255,0.18), 0 0 40px rgba(0,0,0,0.6);
+        }
+
+        /* Sidebar */
         #controls {
-            position: absolute;
+            position: fixed;
             top: 10px;
             left: 10px;
-            z-index: 10;
-            background: rgba(0, 10, 30, 0.88);
+            z-index: 200;
+            background: rgba(0, 10, 30, 0.92);
             backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             padding: 12px;
             border-radius: 10px;
             border: 1px solid rgba(255,255,255,0.1);
-            width: 210px;
-            max-height: calc(100vh - 20px);
+            width: 200px;
+            max-height: calc(100dvh - 20px);
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         #controls h3 {
@@ -56,7 +70,7 @@
             border: 1px solid rgba(255,255,255,0.15);
             color: #fff;
             border-radius: 6px;
-            padding: 7px 4px;
+            padding: 9px 4px;
             font-size: 11px;
             cursor: pointer;
             transition: background 0.15s;
@@ -64,8 +78,10 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            -webkit-tap-highlight-color: transparent;
         }
-        #button-container button:hover { background: rgba(126,207,255,0.25); }
+        #button-container button:hover,
+        #button-container button:active { background: rgba(126,207,255,0.25); }
 
         hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 8px 0; }
 
@@ -84,7 +100,7 @@
         }
         #staging-banner.active { display: block; }
 
-        /* Layer slider row — replaces Front/Back buttons */
+        /* Layer slider row */
         #staging-depth-row {
             display: none;
             flex-direction: column;
@@ -103,6 +119,7 @@
             width: 100%;
             accent-color: #3a9eff;
             cursor: pointer;
+            height: 20px;
         }
 
         #staging-depth-row .slider-ends {
@@ -123,7 +140,7 @@
         #btn-confirm-place {
             display: none;
             width: 100%;
-            padding: 8px;
+            padding: 10px;
             border-radius: 6px;
             border: none;
             cursor: pointer;
@@ -132,13 +149,14 @@
             background: #2ecc71;
             color: #fff;
             margin-bottom: 5px;
+            -webkit-tap-highlight-color: transparent;
         }
         #btn-confirm-place.active { display: block; }
 
         #btn-cancel-place {
             display: none;
             width: 100%;
-            padding: 7px;
+            padding: 9px;
             border-radius: 6px;
             border: none;
             cursor: pointer;
@@ -147,34 +165,99 @@
             background: rgba(255,255,255,0.12);
             color: #fff;
             margin-bottom: 8px;
+            -webkit-tap-highlight-color: transparent;
         }
         #btn-cancel-place.active { display: block; }
 
-        .action-row { display: flex; flex-direction: column; gap: 5px; }
+        /* Overlay toggle tabs */
+        #overlay-controls { margin-top: 2px; }
+
+        #overlay-controls .section-label {
+            font-size: 11px;
+            color: #7ecfff;
+            font-weight: 600;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .overlay-tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 8px;
+        }
+
+        .overlay-tab {
+            flex: 1;
+            padding: 7px 4px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.07);
+            color: #ccc;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .overlay-tab:hover  { background: rgba(126,207,255,0.15); }
+        .overlay-tab.active {
+            background: rgba(58,158,255,0.3);
+            border-color: #3a9eff;
+            color: #7ecfff;
+        }
+
+        #overlay-opacity-row { display: flex; flex-direction: column; gap: 3px; }
+
+        #overlay-opacity-row label {
+            font-size: 11px;
+            color: rgba(255,255,255,0.6);
+        }
+
+        #overlay-opacity {
+            width: 100%;
+            accent-color: #3a9eff;
+            height: 20px;
+        }
+
+        #opacity-display {
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+            text-align: right;
+        }
+
+        /* Action row */
+        .action-row { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
 
         .action-row button {
             width: 100%;
-            padding: 7px;
+            padding: 9px;
             border-radius: 6px;
             border: none;
             cursor: pointer;
             font-size: 12px;
             font-weight: 600;
             transition: opacity 0.15s;
+            -webkit-tap-highlight-color: transparent;
         }
         .action-row button:hover { opacity: 0.85; }
 
         #btn-reset { background: #8b0000; color: #fff; }
 
-        /* ── QR Code ── */
+        /* QR Code */
         #qrcode {
             position: fixed;
             bottom: 10px;
             right: 10px;
-            z-index: 100;
+            z-index: 200;
             background: white;
             padding: 6px;
             border-radius: 6px;
+        }
+
+        /* Hide QR on small phones to save space */
+        @media (max-width: 480px) {
+            #qrcode { display: none; }
+            #controls { width: 180px; }
         }
 
         canvas { display: block; }
@@ -182,17 +265,14 @@
 </head>
 <body>
 
-<!-- ── Sidebar ── -->
 <div id="controls">
     <h3>🌊 Marine Life</h3>
     <div id="button-container"></div>
 
-    <!-- Shown while a staging object is on canvas -->
     <div id="staging-banner">
         Position your creature, choose a layer, then click <strong>Place It</strong>!
     </div>
 
-    <!-- Layer position slider — visible only while staging -->
     <div id="staging-depth-row">
         <label>Layer Position:</label>
         <input
@@ -214,19 +294,26 @@
     <button id="btn-cancel-place"  onclick="cancelPlace()">✖ Cancel</button>
 
     <hr>
-    <div id="overlay-controls" style="margin-top: 8px;">
-        <label for="overlay-opacity" style="font-size:11px; color:#7ecfff; font-weight:600; display:block; margin-bottom:4px;">Overlay Transparency:</label>
-        <input
-            type="range"
-            id="overlay-opacity"
-            min="0"
-            max="1"
-            step="0.1"
-            value="0.5"
-            oninput="setOverlayOpacity(this.value); document.getElementById('opacity-display').textContent = Math.round(this.value * 100) + '%';"
-            style="width: 100%; accent-color: #3a9eff;"
-        />
-        <span id="opacity-display" style="font-size:11px; color:rgba(255,255,255,0.6);">50%</span>
+
+    <div id="overlay-controls">
+        <span class="section-label">🖼 Overlay Image</span>
+        <div class="overlay-tabs">
+            <button id="btn-overlay-color"   class="overlay-tab active" onclick="toggleOverlay('color')">🎨 Color</button>
+            <button id="btn-overlay-outline" class="overlay-tab"        onclick="toggleOverlay('outline')">✏️ Outline</button>
+        </div>
+        <div id="overlay-opacity-row">
+            <label for="overlay-opacity">Transparency</label>
+            <input
+                type="range"
+                id="overlay-opacity"
+                min="0"
+                max="1"
+                step="0.05"
+                value="0.5"
+                oninput="setOverlayOpacity(this.value); document.getElementById('opacity-display').textContent = Math.round(this.value * 100) + '%';"
+            />
+            <span id="opacity-display">50%</span>
+        </div>
     </div>
 
     <hr>
