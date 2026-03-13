@@ -5,17 +5,21 @@
 //   1. Student clicks an animal button → a staging copy appears
 //      on their local canvas, fully editable (move/scale/rotate).
 //   2. They drag the "Layer Position" slider to choose depth,
-//      then confirm placement with Place It!
-//      The slider tracks relative position (e.g. "2nd from top")
-//      so that if new objects arrive while staging, the slider
-//      automatically adjusts to maintain the same relative depth.
-//   3. The final position is written to Firebase and locked for everyone.
+//      then confirm with Place It!
+//      The slider tracks relative position so if new objects
+//      arrive while staging the depth intent is preserved.
+//   3. The final position is written to Firebase and locked.
 //   4. "Cancel" removes the staging object without touching Firebase.
 //
-//  The overlay image is always rendered on top of all canvas objects
-//  via canvas.overlayImage and is never cleared by Reset All.
+//  Overlay behaviour:
+//   • Michelangelo.jpg  — colour photo (loaded first; drives canvas aspect ratio)
+//   • Michelangelo_outline.png — white pixels made transparent via pixel processing
+//   • Toggle tabs switch which image is shown; opacity slider applies to the active one
+//   • Both overlays live in canvas.overlayImage (above every canvas object)
+//     and are never cleared by Reset All.
 //
-//  Reset All has no password — button clears everything immediately.
+//  Canvas is letter-boxed to the artwork's aspect ratio and centred in the
+//  viewport via CSS, so the composition always matches the painting on phones.
 // ============================================================
 
 
@@ -36,54 +40,162 @@ const objectsRef = db.ref('marine-objects');
 
 
 // ── 2. CANVAS ────────────────────────────────────────────────
+//  Start at window size; resized to artwork aspect ratio once
+//  Michelangelo.jpg loads.  CSS centres the Fabric wrapper div.
 const canvas = new fabric.Canvas('oceanCanvas', {
-    width:  window.innerWidth,
-    height: window.innerHeight,
+    width:     window.innerWidth,
+    height:    window.innerHeight,
     selection: false
 });
 
-window.addEventListener('resize', () => {
-    canvas.setDimensions({ width: window.innerWidth, height: window.innerHeight });
-    // Keep overlay scaled to fill the canvas after resize
-    if (canvas.overlayImage) {
-        canvas.overlayImage.set({
-            scaleX: canvas.width  / canvas.overlayImage.width,
-            scaleY: canvas.height / canvas.overlayImage.height
-        });
+// Aspect ratio of the artwork (set when colour image loads)
+let artworkAspect = null;
+
+/** Return canvas dimensions that fit inside the window while
+ *  preserving artworkAspect (letter-box / pillar-box). */
+function computeCanvasSize() {
+    if (!artworkAspect) {
+        return { w: window.innerWidth, h: window.innerHeight };
     }
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const winAspect = winW / winH;
+    if (winAspect > artworkAspect) {
+        // Window is wider → constrained by height
+        const h = winH;
+        return { w: Math.floor(h * artworkAspect), h };
+    } else {
+        // Window is taller → constrained by width
+        const w = winW;
+        return { w, h: Math.floor(w / artworkAspect) };
+    }
+}
+
+function resizeCanvas() {
+    const { w, h } = computeCanvasSize();
+    canvas.setDimensions({ width: w, height: h });
+    rescaleOverlays();
     canvas.renderAll();
-});
+}
+
+window.addEventListener('resize', resizeCanvas);
 
 
 // ── 3. OVERLAY ───────────────────────────────────────────────
-//  Uses canvas.overlayImage so Fabric always renders it ABOVE
-//  every regular canvas object. It is never part of getObjects()
-//  and therefore is never touched by Reset All.
-function initOverlay(url) {
-    fabric.Image.fromURL(url, (img) => {
-        img.set({
-            left:    0,
-            top:     0,
-            scaleX:  canvas.width  / img.width,
-            scaleY:  canvas.height / img.height,
-            opacity: 0.5
-        });
-        // Assign to overlayImage — Fabric renders this after all objects
-        canvas.overlayImage = img;
-        canvas.renderAll();
-    }, { crossOrigin: 'anonymous' });
+//  canvas.overlayImage is rendered by Fabric above all objects.
+//  It is not in getObjects() so Reset All never touches it.
+
+let overlayImages  = { color: null, outline: null }; // cached Fabric Images
+let activeOverlay  = 'color';
+let overlayOpacity = 0.5;
+
+/** Scale a Fabric Image to fill the current canvas exactly. */
+function scaleOverlayToCanvas(img) {
+    img.set({
+        left:   0,
+        top:    0,
+        scaleX: canvas.width  / img.width,
+        scaleY: canvas.height / img.height
+    });
 }
 
-function setOverlayOpacity(value) {
-    if (canvas.overlayImage) {
-        canvas.overlayImage.set({ opacity: parseFloat(value) });
+/** Re-scale whichever overlay images have been loaded (called on resize). */
+function rescaleOverlays() {
+    if (overlayImages.color)   scaleOverlayToCanvas(overlayImages.color);
+    if (overlayImages.outline) scaleOverlayToCanvas(overlayImages.outline);
+}
+
+/** Activate the named overlay ('color' or 'outline'). */
+function toggleOverlay(which) {
+    activeOverlay = which;
+
+    document.getElementById('btn-overlay-color')
+        .classList.toggle('active', which === 'color');
+    document.getElementById('btn-overlay-outline')
+        .classList.toggle('active', which === 'outline');
+
+    const img = overlayImages[which];
+    if (img) {
+        scaleOverlayToCanvas(img);
+        img.set({ opacity: overlayOpacity });
+        canvas.overlayImage = img;
         canvas.renderAll();
     }
 }
 
-window.addEventListener('load', () => {
-    initOverlay('assets/Michelangelo.jpg');
-});
+/** Update opacity on the currently active overlay. */
+function setOverlayOpacity(value) {
+    overlayOpacity = parseFloat(value);
+    if (canvas.overlayImage) {
+        canvas.overlayImage.set({ opacity: overlayOpacity });
+        canvas.renderAll();
+    }
+}
+
+/**
+ * Process a Fabric Image by replacing near-white pixels with full
+ * transparency on an offscreen canvas, then return a new Fabric Image
+ * built from the processed data URL.
+ *
+ * @param {fabric.Image} fabricImg  - source image (must already be loaded)
+ * @param {number}       threshold  - 0-255; pixels with R,G,B all above this become transparent
+ * @param {function}     callback   - called with the processed fabric.Image
+ */
+function makeWhiteTransparent(fabricImg, threshold, callback) {
+    const src = fabricImg.getElement();
+    const w   = src.naturalWidth  || src.width;
+    const h   = src.naturalHeight || src.height;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width  = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext('2d');
+    ctx.drawImage(src, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const d         = imageData.data;
+
+    for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > threshold && d[i+1] > threshold && d[i+2] > threshold) {
+            d[i+3] = 0; // fully transparent
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    fabric.Image.fromURL(offscreen.toDataURL('image/png'), callback);
+}
+
+/** Load both overlay images.  The colour image is loaded first so its
+ *  dimensions can drive the canvas aspect ratio. */
+function initOverlays() {
+    fabric.Image.fromURL('assets/Michelangelo.jpg', (colorImg) => {
+        // Derive artwork aspect ratio from the natural image dimensions
+        artworkAspect = colorImg.width / colorImg.height;
+
+        overlayImages.color = colorImg;
+        colorImg.set({ opacity: overlayOpacity });
+
+        // Size the canvas to the artwork before setting the overlay
+        resizeCanvas();
+
+        scaleOverlayToCanvas(colorImg);
+        canvas.overlayImage = colorImg;
+        canvas.renderAll();
+
+        // Now load the outline (white → transparent)
+        fabric.Image.fromURL('assets/Michelangelo_outline.png', (rawOutline) => {
+            makeWhiteTransparent(rawOutline, 230, (processedOutline) => {
+                overlayImages.outline = processedOutline;
+                processedOutline.set({ opacity: overlayOpacity });
+                scaleOverlayToCanvas(processedOutline);
+                // Don't switch the active overlay here — user chose colour
+            });
+        }, { crossOrigin: 'anonymous' });
+
+    }, { crossOrigin: 'anonymous' });
+}
+
+window.addEventListener('load', initOverlays);
 
 
 // ── 4. ANIMAL BUTTONS ────────────────────────────────────────
@@ -115,16 +227,15 @@ marineFiles.forEach(fileName => {
 
 
 // ── 5. STAGING — editable object before placement ────────────
-let stagingObj = null;   // the local-only Fabric object being positioned
-let stagingUrl = null;   // stored url for Firebase write
+let stagingObj = null;   // local-only Fabric object being positioned
+let stagingUrl = null;   // stored URL for the Firebase write
 
-// Tracks where the user intends to place relative to the stack:
-//   { fromTop: N }    — N steps from the top  (0 = front/top)
-//   { fromBottom: N } — N steps from the bottom (0 = back/bottom)
-// Null while not staging.
+// Relative depth intent, preserved across incoming Firebase updates:
+//   { fromTop: N }    — N layers from the top  (0 = front)
+//   { fromBottom: N } — N layers from the bottom (0 = back)
 let stagingLayerIntent = null;
 
-/** Returns all permanent (non-staging) objects on the canvas. */
+/** All permanent (non-staging) objects on the canvas. */
 function getPlacedObjects() {
     return canvas.getObjects().filter(o => o.id !== '__staging__');
 }
@@ -132,13 +243,13 @@ function getPlacedObjects() {
 function startStaging(url) {
     if (stagingObj) cancelPlace();
 
-    stagingUrl          = url;
-    stagingLayerIntent  = null;   // will be set to fromTop:0 (front) in showStagingUI
+    stagingUrl         = url;
+    stagingLayerIntent = null;
 
     fabric.Image.fromURL(url, (img) => {
         img.set({
-            left:        Math.round(window.innerWidth  * 0.3),
-            top:         Math.round(window.innerHeight * 0.3),
+            left:        Math.round(canvas.width  * 0.3),
+            top:         Math.round(canvas.height * 0.3),
             scaleX:      0.5,
             scaleY:      0.5,
             angle:       0,
@@ -162,18 +273,16 @@ function startStaging(url) {
 
 
 // ── 6. LAYER SLIDER ──────────────────────────────────────────
-//  Slider value: 1 = back (bottom of stack), max = front (top).
+//  Slider: 1 = back (bottom), max = front (top)
 
-/** Called by the slider's oninput handler in HTML. */
 function onLayerSliderInput(rawValue) {
     const value    = parseInt(rawValue);
     const placed   = getPlacedObjects();
-    const total    = placed.length + 1;   // includes the staging object
+    const total    = placed.length + 1;
 
-    const fromTop    = total - value;     // 0 = top
-    const fromBottom = value - 1;         // 0 = bottom
+    const fromTop    = total - value;
+    const fromBottom = value - 1;
 
-    // Anchor to whichever end is closer (ties go to top)
     stagingLayerIntent = (fromTop <= fromBottom)
         ? { fromTop }
         : { fromBottom };
@@ -182,20 +291,19 @@ function onLayerSliderInput(rawValue) {
     applyZOrder();
 }
 
-/** Recomputes slider max & value to preserve the user's relative intent
- *  when new objects arrive while staging is active. */
+/** Recompute slider range when the placed-object count changes mid-staging,
+ *  keeping the user's relative depth intent intact. */
 function updateStagingSliderRange() {
     if (!stagingObj) return;
 
     const placed = getPlacedObjects();
     const total  = placed.length + 1;
-
     const slider = document.getElementById('layer-slider');
     slider.max   = total;
 
     let newValue;
     if (!stagingLayerIntent) {
-        newValue = total;                                         // default: front
+        newValue = total;
     } else if (stagingLayerIntent.fromTop !== undefined) {
         newValue = Math.max(1, total - stagingLayerIntent.fromTop);
     } else {
@@ -207,12 +315,11 @@ function updateStagingSliderRange() {
     applyZOrder();
 }
 
-/** Updates the text label beneath the slider. */
 function updateLayerLabel(value, total) {
     const el = document.getElementById('layer-label');
-    if (value >= total)    el.textContent = 'Front (top layer)';
-    else if (value === 1)  el.textContent = 'Back (bottom layer)';
-    else                   el.textContent = `Layer ${value} of ${total}`;
+    if (value >= total)   el.textContent = 'Front (top layer)';
+    else if (value === 1) el.textContent = 'Back (bottom layer)';
+    else                  el.textContent = `Layer ${value} of ${total}`;
 }
 
 
@@ -220,13 +327,11 @@ function updateLayerLabel(value, total) {
 function confirmPlace() {
     if (!stagingObj) return;
 
-    const placed = getPlacedObjects()
+    const placed    = getPlacedObjects()
         .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
-
-    const slider   = document.getElementById('layer-slider');
+    const slider    = document.getElementById('layer-slider');
     const sliderVal = parseInt(slider.value || slider.max || 1);
 
-    // Compute a zIndex that slots the new object at sliderVal's position.
     let zIdx;
     if (placed.length === 0) {
         zIdx = 0;
@@ -235,7 +340,6 @@ function confirmPlace() {
     } else if (sliderVal > placed.length) {
         zIdx = (placed[placed.length - 1].zIndex ?? 0) + 1;
     } else {
-        // Between placed[sliderVal-2] and placed[sliderVal-1] (0-indexed)
         const below = placed[sliderVal - 2]?.zIndex ?? 0;
         const above = placed[sliderVal - 1]?.zIndex ?? 0;
         zIdx = (below + above) / 2;
@@ -276,13 +380,11 @@ function cancelPlace() {
 function showStagingUI() {
     const placed = getPlacedObjects();
     const total  = placed.length + 1;
-
     const slider = document.getElementById('layer-slider');
     slider.min   = 1;
     slider.max   = total;
-    slider.value = total;                // default: front
-
-    stagingLayerIntent = { fromTop: 0 }; // anchored to front
+    slider.value = total;                  // default: front
+    stagingLayerIntent = { fromTop: 0 };
 
     updateLayerLabel(total, total);
 
@@ -318,15 +420,13 @@ function lockObject(obj) {
 
 
 // ── 10. Z-ORDER ──────────────────────────────────────────────
-//  Sorts all permanent objects by their zIndex, renders them
-//  back-to-front, then inserts the staging object at the slider
-//  position. canvas.overlayImage sits above everything automatically.
+//  canvas.overlayImage always renders above everything automatically;
+//  this function only manages the permanent objects + staging object.
 function applyZOrder() {
     const placed = getPlacedObjects()
         .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
     if (!stagingObj) {
-        // No staging: simply re-stack permanent objects
         placed.forEach(o => canvas.bringToFront(o));
         canvas.renderAll();
         return;
@@ -336,32 +436,24 @@ function applyZOrder() {
     const sliderVal = parseInt(slider.value || slider.max || 1);
     const total     = placed.length + 1;
 
-    // Build full stack with staging inserted at sliderVal-1 (0-indexed, back→front)
     const stack = [...placed];
     stack.splice(sliderVal - 1, 0, stagingObj);
-
-    // Apply: call bringToFront in order so the last call = topmost
     stack.forEach(o => canvas.bringToFront(o));
 
-    // Manage selection: Fabric renders the active object above everything else,
-    // which would break depth preview when staging is not at the top.
     if (sliderVal < total) {
-        canvas.discardActiveObject();   // staging is buried — don't let Fabric float it
+        canvas.discardActiveObject();   // buried — don't let Fabric float it
     } else {
-        canvas.setActiveObject(stagingObj); // staging is at front — keep handles visible
+        canvas.setActiveObject(stagingObj);
     }
 
     canvas.renderAll();
 }
 
-// After the user finishes dragging the staging object when it is NOT at the top,
-// discard the selection so Fabric stops floating it above other objects.
 canvas.on('mouse:up', () => {
     if (stagingObj) {
         const slider    = document.getElementById('layer-slider');
         const sliderVal = parseInt(slider.value || slider.max || 1);
-        const placed    = getPlacedObjects();
-        if (sliderVal <= placed.length) {
+        if (sliderVal <= getPlacedObjects().length) {
             canvas.discardActiveObject();
             applyZOrder();
         }
@@ -387,9 +479,6 @@ objectsRef.on('child_added', (snapshot) => {
         lockObject(img);
         canvas.add(img);
         applyZOrder();
-
-        // If another student just placed while this user is still staging,
-        // recalculate the slider range to keep the user's relative position.
         if (stagingObj) updateStagingSliderRange();
     }, { crossOrigin: 'anonymous' });
 });
@@ -409,15 +498,11 @@ objectsRef.on('child_changed', (snapshot) => {
 // ── 13. FIREBASE → CANVAS: object removed ────────────────────
 objectsRef.on('child_removed', (snapshot) => {
     const obj = canvas.getObjects().find(o => o.id === snapshot.key);
-    if (obj) {
-        canvas.remove(obj);
-        canvas.renderAll();
-    }
+    if (obj) { canvas.remove(obj); canvas.renderAll(); }
     if (stagingObj) updateStagingSliderRange();
 });
 
-// When the entire ref is wiped (Reset All), clear every client's canvas.
-// The overlay lives in canvas.overlayImage (not getObjects()) and is untouched.
+// Reset All wipe: canvas.overlayImage is not in getObjects() → untouched
 objectsRef.on('value', (snapshot) => {
     if (!snapshot.exists()) {
         canvas.getObjects()
@@ -432,8 +517,6 @@ objectsRef.on('value', (snapshot) => {
 // ── 14. RESET ALL ────────────────────────────────────────────
 function clearOcean() {
     objectsRef.set(null);
-    // Clear local canvas immediately; value listener handles all other clients.
-    // canvas.overlayImage is untouched — it is not part of getObjects().
     canvas.getObjects()
         .filter(o => o.id !== '__staging__')
         .slice()
