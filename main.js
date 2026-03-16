@@ -175,6 +175,30 @@ function initOverlays() {
 window.addEventListener('load', initOverlays);
 
 
+// ── 4b. INSET BORDER MASK ────────────────────────────────────
+//  Drawn directly on the raw 2-D context AFTER every Fabric render
+//  (including overlayImage), so it always sits on top of everything.
+//  Four solid-black rectangles frame the inner safe zone.
+const BORDER_INSET = 0.045;   // fraction of the smaller canvas dimension
+
+function drawBorderMask() {
+    const ctx   = canvas.getContext('2d');
+    const w     = canvas.width;
+    const h     = canvas.height;
+    const inset = Math.round(Math.min(w, h) * BORDER_INSET);
+
+    ctx.save();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,          0,          w,     inset);          // top
+    ctx.fillRect(0,          h - inset,  w,     inset);          // bottom
+    ctx.fillRect(0,          inset,      inset, h - inset * 2);  // left
+    ctx.fillRect(w - inset,  inset,      inset, h - inset * 2);  // right
+    ctx.restore();
+}
+
+canvas.on('after:render', drawBorderMask);
+
+
 // ── 5. ANIMAL BUTTONS ────────────────────────────────────────
 const marineFiles = [
     'Seal.png','Crab.png','Jellyfish.png','Kelp1.png','Kelp2.png',
