@@ -68,6 +68,7 @@ function resizeCanvas() {
     }
 
     rescaleOverlays();
+    sizeBorderBars();
     canvas.renderAll();
 }
 
@@ -175,32 +176,51 @@ function initOverlays() {
 window.addEventListener('load', initOverlays);
 
 
-// ── 4b. INSET BORDER MASK ────────────────────────────────────
-//  Drawn directly on the raw 2-D context AFTER every Fabric render
-//  (including overlayImage), so it always sits on top of everything.
-//  Four solid-black rectangles frame the inner safe zone.
-const BORDER_INSET = 0.045;   // fraction of the smaller canvas dimension
+// ── 4b. INSET BORDER BARS ────────────────────────────────────
+//  Four solid fabric.Rect objects forming a frame inset from the
+//  canvas edges. Because they are real Fabric objects they zoom
+//  and pan in perfect sync with the image and all placed creatures.
+//  They are excluded from every other game operation via their IDs.
 
-function drawBorderMask() {
-    const ctx   = canvas.getContext('2d');
+const BORDER_INSET = 0.045;   // fraction of the smaller canvas dimension
+const BORDER_IDS   = ['__border_top__','__border_bottom__','__border_left__','__border_right__'];
+let borderRects = [];
+
+function createBorderBars() {
+    borderRects = BORDER_IDS.map(id => {
+        const r = new fabric.Rect({
+            fill: '#000', selectable: false, evented: false,
+            hasControls: false, hasBorders: false,
+            lockMovementX: true, lockMovementY: true,
+            id: id
+        });
+        canvas.add(r);
+        return r;
+    });
+    sizeBorderBars();
+}
+
+function sizeBorderBars() {
+    if (borderRects.length === 0) return;
     const w     = canvas.width;
     const h     = canvas.height;
     const inset = Math.round(Math.min(w, h) * BORDER_INSET);
-    const vpt   = canvas.viewportTransform;
+    const [top, bottom, left, right] = borderRects;
 
-    ctx.save();
-    // Apply the viewport transform so drawing coordinates match the image's
-    // world space — the rectangles will zoom and pan in sync with the painting.
-    ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0,         0,         w,     inset);          // top
-    ctx.fillRect(0,         h - inset, w,     inset);          // bottom
-    ctx.fillRect(0,         inset,     inset, h - inset * 2);  // left
-    ctx.fillRect(w - inset, inset,     inset, h - inset * 2);  // right
-    ctx.restore();
+    top.set    ({ left: 0,         top: 0,         width: w,     height: inset });
+    bottom.set ({ left: 0,         top: h - inset, width: w,     height: inset });
+    left.set   ({ left: 0,         top: inset,     width: inset, height: h - inset * 2 });
+    right.set  ({ left: w - inset, top: inset,     width: inset, height: h - inset * 2 });
+
+    borderRects.forEach(r => r.setCoords());
+    bringBorderBarsToFront();
 }
 
-canvas.on('after:render', drawBorderMask);
+function bringBorderBarsToFront() {
+    borderRects.forEach(r => canvas.bringToFront(r));
+}
+
+window.addEventListener('load', createBorderBars);
 
 
 // ── 5. ANIMAL BUTTONS ────────────────────────────────────────
@@ -262,7 +282,7 @@ let stagingLayerIntent = null;
 let stagingFlipped     = false;
 
 function getPlacedObjects() {
-    return canvas.getObjects().filter(o => o.id !== '__staging__');
+    return canvas.getObjects().filter(o => o.id !== '__staging__' && !BORDER_IDS.includes(o.id));
 }
 
 function startStaging(url, opts = {}) {
@@ -461,7 +481,12 @@ function lockObject(obj) {
 // ── 13. Z-ORDER ──────────────────────────────────────────────
 function applyZOrder() {
     const placed = getPlacedObjects().sort((a,b) => (a.zIndex??0)-(b.zIndex??0));
-    if (!stagingObj) { placed.forEach(o => canvas.bringToFront(o)); canvas.renderAll(); return; }
+    if (!stagingObj) {
+        placed.forEach(o => canvas.bringToFront(o));
+        bringBorderBarsToFront();
+        canvas.renderAll();
+        return;
+    }
 
     const slider    = document.getElementById('layer-slider');
     const sliderVal = parseInt(slider.value || slider.max || 1);
@@ -474,6 +499,7 @@ function applyZOrder() {
     if (sliderVal < total) canvas.discardActiveObject();
     else                   canvas.setActiveObject(stagingObj);
 
+    bringBorderBarsToFront();
     canvas.renderAll();
 }
 
@@ -770,11 +796,11 @@ objectsRef.on('child_removed', (snapshot) => {
     if (stagingObj) updateStagingSliderRange();
 });
 
-// Full wipe — overlayImage is untouched (not in getObjects())
+// Full wipe — overlayImage and border bars are untouched
 objectsRef.on('value', (snapshot) => {
     if (!snapshot.exists()) {
         canvas.getObjects()
-            .filter(o => o.id !== '__staging__')
+            .filter(o => o.id !== '__staging__' && !BORDER_IDS.includes(o.id))
             .slice().forEach(o => canvas.remove(o));
         canvas.renderAll();
     }
@@ -785,7 +811,7 @@ objectsRef.on('value', (snapshot) => {
 function clearOcean() {
     objectsRef.set(null);
     canvas.getObjects()
-        .filter(o => o.id !== '__staging__')
+        .filter(o => o.id !== '__staging__' && !BORDER_IDS.includes(o.id))
         .slice().forEach(o => canvas.remove(o));
     canvas.renderAll();
 }
