@@ -355,7 +355,22 @@
             z-index: 200; background: white;
             padding: 6px; border-radius: 6px;
         }
-        @media (max-width: 480px) { #qrcode { display: none; } }
+        /* Hide QR on all phones/tablets */
+        @media (max-width: 767px) { #qrcode { display: none; } }
+
+        /* ── Compact staging bar on phones ── */
+        @media (max-width: 767px) {
+            #staging-bar {
+                padding: 6px 10px;
+                padding-bottom: max(8px, env(safe-area-inset-bottom));
+            }
+            .staging-hint { font-size: 10px; margin-bottom: 4px; }
+            .staging-layer-row { gap: 6px; margin-bottom: 6px; }
+            #layer-slider { height: 18px; }
+            #layer-label  { font-size: 10px; min-height: 12px; }
+            .staging-end-label { font-size: 9px; }
+            .staging-actions button { padding: 10px 4px; font-size: 12px; }
+        }
 
         canvas { display: block; }
     </style>
