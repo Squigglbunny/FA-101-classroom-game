@@ -186,13 +186,17 @@ function drawBorderMask() {
     const w     = canvas.width;
     const h     = canvas.height;
     const inset = Math.round(Math.min(w, h) * BORDER_INSET);
+    const vpt   = canvas.viewportTransform;
 
     ctx.save();
+    // Apply the viewport transform so drawing coordinates match the image's
+    // world space — the rectangles will zoom and pan in sync with the painting.
+    ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
     ctx.fillStyle = '#000';
-    ctx.fillRect(0,          0,          w,     inset);          // top
-    ctx.fillRect(0,          h - inset,  w,     inset);          // bottom
-    ctx.fillRect(0,          inset,      inset, h - inset * 2);  // left
-    ctx.fillRect(w - inset,  inset,      inset, h - inset * 2);  // right
+    ctx.fillRect(0,         0,         w,     inset);          // top
+    ctx.fillRect(0,         h - inset, w,     inset);          // bottom
+    ctx.fillRect(0,         inset,     inset, h - inset * 2);  // left
+    ctx.fillRect(w - inset, inset,     inset, h - inset * 2);  // right
     ctx.restore();
 }
 
