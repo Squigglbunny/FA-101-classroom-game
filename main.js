@@ -207,10 +207,13 @@ function sizeBorderBars() {
     const inset = Math.round(Math.min(w, h) * BORDER_INSET);
     const [top, bottom, left, right] = borderRects;
 
-    top.set    ({ left: 0,         top: 0,         width: w,     height: inset });
-    bottom.set ({ left: 0,         top: h - inset, width: w,     height: inset });
-    left.set   ({ left: 0,         top: inset,     width: inset, height: h - inset * 2 });
-    right.set  ({ left: w - inset, top: inset,     width: inset, height: h - inset * 2 });
+    // Top/Bottom extend to cover the width of the image PLUS the two side bars
+    top.set   ({ left: imgLeft - inset, top: imgTop - inset, width: imgW + (inset * 2), height: inset });
+    bottom.set({ left: imgLeft - inset, top: imgTop + imgH,   width: imgW + (inset * 2), height: inset });
+
+    // Left/Right sit exactly between the top and bottom bars
+    left.set  ({ left: imgLeft - inset, top: imgTop, width: inset, height: imgH });
+    right.set ({ left: imgLeft + imgW,  top: imgTop, width: inset, height: imgH });
 
     borderRects.forEach(r => r.setCoords());
     bringBorderBarsToFront();
