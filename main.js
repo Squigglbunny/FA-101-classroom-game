@@ -100,7 +100,7 @@ function applyNormCoords(obj) {
 // ── 4. OVERLAY ───────────────────────────────────────────────
 let overlayImages  = { color: null, outline: null };
 let activeOverlay  = 'color';
-let overlayOpacity = 0.5;
+let overlayOpacity = 0;
 
 function scaleOverlayToCanvas(img) {
     img.set({ left: 0, top: 0,
