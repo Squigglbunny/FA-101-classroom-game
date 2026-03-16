@@ -1,20 +1,21 @@
 // ============================================================
 //  main.js — Marine Ecosystem Classroom Game
 //
-//  Coordinate system — normalised (0-1) fractions of canvas size
-//  are stored in Firebase so any device / orientation renders
-//  objects at the correct position relative to the painting.
+//  Coordinates stored as normalised fractions (0-1) of canvas
+//  size in Firebase so every device/orientation matches the overlay.
 //
-//  UX features:
-//   • Pinch-to-zoom + two-finger pan (mobile)
-//   • Scroll-wheel zoom (desktop)
-//   • Single-finger pan on empty canvas when not staging
-//   • After confirming a placement the staging copy persists
-//     (offset slightly) so rapid multi-placement is easy
-//   • Staging controls live in a bottom action bar for
-//     thumb-friendly access on phones
-//   • Sidebar is collapsible on mobile; closes auto when staging
+//  New in this version:
+//   • Placement cooldown   — 6 s between confirms; countdown on button
+//   • Persist staging      — after confirm, staging restarts ⅕ offset away
+//   • Flip (flipX)         — stored in Firebase; applied on load
+//   • Display / kiosk mode — Ctrl+Shift+H hides all UI
+//   • Teacher mode         — password-gated; syncs lock/overlay via Firebase
+//   • Undo                 — removes the client's last placed object
+//   • Keyboard shortcuts   — Ctrl+Shift+H, Ctrl+Shift+T, Esc
 // ============================================================
+
+const TEACHER_PASSWORD = 'teach';  // ← change this to your preferred password
+const COOLDOWN_MS      = 6000;     // ms between confirmed placements
 
 
 // ── 1. FIREBASE ──────────────────────────────────────────────
@@ -28,18 +29,18 @@ const firebaseConfig = {
     appId: "1:357744157002:web:c49c360e340454f535a1b3"
 };
 firebase.initializeApp(firebaseConfig);
-const db         = firebase.database();
-const objectsRef = db.ref('marine-objects');
+const db               = firebase.database();
+const objectsRef       = db.ref('marine-objects');
+const teacherSettingsRef = db.ref('teacher-settings');
 
 
 // ── 2. CANVAS ────────────────────────────────────────────────
 const canvas = new fabric.Canvas('oceanCanvas', {
-    width:     window.innerWidth,
-    height:    window.innerHeight,
+    width: window.innerWidth, height: window.innerHeight,
     selection: false
 });
 
-let artworkAspect = null; // set when Michelangelo.jpg loads
+let artworkAspect = null;
 
 function computeCanvasSize() {
     if (!artworkAspect) return { w: window.innerWidth, h: window.innerHeight };
@@ -54,12 +55,10 @@ function resizeCanvas() {
     const { w, h } = computeCanvasSize();
     canvas.setDimensions({ width: w, height: h });
 
-    // Reposition permanent objects from their normalised coords
     canvas.getObjects()
         .filter(o => o.id !== '__staging__' && o._normCoords)
         .forEach(applyNormCoords);
 
-    // Move the in-progress staging object proportionally
     if (stagingObj && oldW && oldH) {
         stagingObj.set({
             left: stagingObj.left * (w / oldW),
@@ -75,12 +74,11 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 
 
-// ── 3. NORMALISED-COORDINATE HELPERS ─────────────────────────
+// ── 3. NORMALISED COORDINATE HELPERS ─────────────────────────
 function storeNormCoords(obj) {
     const nW = obj.width, nH = obj.height;
     obj._normCoords = {
-        leftN:   obj.left   / canvas.width,
-        topN:    obj.top    / canvas.height,
+        leftN: obj.left / canvas.width, topN: obj.top / canvas.height,
         scaleXN: obj.scaleX * nW / canvas.width,
         scaleYN: obj.scaleY * nH / canvas.height,
         naturalW: nW, naturalH: nH
@@ -141,18 +139,15 @@ function setOverlayOpacity(value) {
 
 function makeWhiteTransparent(fabricImg, threshold, callback) {
     const src = fabricImg.getElement();
-    const w = src.naturalWidth || src.width;
-    const h = src.naturalHeight || src.height;
+    const w = src.naturalWidth || src.width, h = src.naturalHeight || src.height;
     const off = document.createElement('canvas');
     off.width = w; off.height = h;
     const ctx = off.getContext('2d');
     ctx.drawImage(src, 0, 0);
-    const d = ctx.getImageData(0, 0, w, h).data;
     const id = ctx.getImageData(0, 0, w, h);
-    for (let i = 0; i < id.data.length; i += 4) {
+    for (let i = 0; i < id.data.length; i += 4)
         if (id.data[i] > threshold && id.data[i+1] > threshold && id.data[i+2] > threshold)
             id.data[i+3] = 0;
-    }
     ctx.putImageData(id, 0, 0);
     fabric.Image.fromURL(off.toDataURL('image/png'), callback);
 }
@@ -193,15 +188,50 @@ marineFiles.forEach(fileName => {
     const base  = fileName.replace(/\.[^.]+$/, '');
     const label = base.replace(/_/g,' ').replace(/([a-z])(\d)/g,'$1 $2');
     btn.textContent = label.charAt(0).toUpperCase() + label.slice(1);
-    btn.onclick = () => startStaging(`assets/${fileName}`);
+    btn.onclick = () => { if (!teacherSettings.locked) startStaging(`assets/${fileName}`); };
     container.appendChild(btn);
 });
 
 
-// ── 6. STAGING ───────────────────────────────────────────────
+// ── 6. COOLDOWN ──────────────────────────────────────────────
+let cooldownEnd   = 0;
+let cooldownTimer = null;
+
+function startCooldown() {
+    cooldownEnd = Date.now() + COOLDOWN_MS;
+    if (cooldownTimer) clearInterval(cooldownTimer);
+    cooldownTimer = setInterval(() => {
+        if (Date.now() >= cooldownEnd) {
+            clearInterval(cooldownTimer);
+            cooldownTimer = null;
+            cooldownEnd   = 0;
+        }
+        updateCooldownUI();
+    }, 200);
+    updateCooldownUI();
+}
+
+function isOnCooldown() { return Date.now() < cooldownEnd; }
+
+function updateCooldownUI() {
+    const btn = document.getElementById('btn-confirm-place');
+    if (!btn) return;
+    if (isOnCooldown()) {
+        const secs = Math.ceil((cooldownEnd - Date.now()) / 1000);
+        btn.textContent = `⏳ ${secs}s`;
+        btn.disabled    = true;
+    } else {
+        btn.textContent = '✅ Place It!';
+        btn.disabled    = false;
+    }
+}
+
+
+// ── 7. STAGING ───────────────────────────────────────────────
 let stagingObj         = null;
 let stagingUrl         = null;
 let stagingLayerIntent = null;
+let stagingFlipped     = false;
 
 function getPlacedObjects() {
     return canvas.getObjects().filter(o => o.id !== '__staging__');
@@ -210,22 +240,24 @@ function getPlacedObjects() {
 function startStaging(url, opts = {}) {
     if (stagingObj) cancelPlace(/*silent*/ true);
 
+    // Auto-close sidebar on mobile
+    if (window.innerWidth < 768) closeSidebar();
+
     stagingUrl         = url;
     stagingLayerIntent = null;
-
-    // Auto-close sidebar on mobile when staging begins
-    if (window.innerWidth < 768) closeSidebar();
+    stagingFlipped     = opts.flipX ?? false;
 
     fabric.Image.fromURL(url, (img) => {
         img.set({
-            left:        opts.left  ?? canvas.width  * 0.5,
-            top:         opts.top   ?? canvas.height * 0.4,
+            left:        opts.left   ?? canvas.width  * 0.5,
+            top:         opts.top    ?? canvas.height * 0.4,
             scaleX:      opts.scaleX ?? 0.5,
             scaleY:      opts.scaleY ?? 0.5,
             angle:       opts.angle  ?? 0,
+            flipX:       stagingFlipped,
             opacity:     1,
-            selectable:  true, evented: true,
-            hasControls: true, hasBorders: true,
+            selectable:  true, evented:     true,
+            hasControls: true, hasBorders:  true,
             id:          '__staging__'
         });
         stagingObj = img;
@@ -238,8 +270,16 @@ function startStaging(url, opts = {}) {
     }, { crossOrigin: 'anonymous' });
 }
 
+function flipStaging() {
+    if (!stagingObj) return;
+    stagingFlipped = !stagingFlipped;
+    stagingObj.set({ flipX: stagingFlipped });
+    document.getElementById('btn-flip').classList.toggle('flipped', stagingFlipped);
+    canvas.renderAll();
+}
 
-// ── 7. LAYER SLIDER ──────────────────────────────────────────
+
+// ── 8. LAYER SLIDER ──────────────────────────────────────────
 function onLayerSliderInput(rawValue) {
     const value  = parseInt(rawValue);
     const total  = getPlacedObjects().length + 1;
@@ -274,17 +314,19 @@ function updateLayerLabel(value, total) {
 }
 
 
-// ── 8. CONFIRM / CANCEL ──────────────────────────────────────
+// ── 9. CONFIRM / CANCEL ──────────────────────────────────────
+const myPlacedKeys = [];   // keys of objects THIS client has placed (for undo)
+
 function confirmPlace() {
-    if (!stagingObj) return;
+    if (!stagingObj || isOnCooldown()) return;
 
     const placed    = getPlacedObjects().sort((a,b) => (a.zIndex??0)-(b.zIndex??0));
     const slider    = document.getElementById('layer-slider');
     const sliderVal = parseInt(slider.value || slider.max || 1);
 
     let zIdx;
-    if (placed.length === 0)           zIdx = 0;
-    else if (sliderVal <= 1)           zIdx = (placed[0].zIndex ?? 0) - 1;
+    if (placed.length === 0)            zIdx = 0;
+    else if (sliderVal <= 1)            zIdx = (placed[0].zIndex ?? 0) - 1;
     else if (sliderVal > placed.length) zIdx = (placed[placed.length-1].zIndex ?? 0) + 1;
     else {
         const below = placed[sliderVal-2]?.zIndex ?? 0;
@@ -294,11 +336,12 @@ function confirmPlace() {
 
     const naturalW = stagingObj.width;
     const naturalH = stagingObj.height;
+    const key      = 'obj_' + Date.now();
 
-    // Write normalised coords to Firebase
-    objectsRef.child('obj_' + Date.now()).set({
+    objectsRef.child(key).set({
         url:    stagingUrl,
         angle:  stagingObj.angle,
+        flipX:  stagingFlipped,
         zIndex: zIdx,
         leftN:   stagingObj.left   / canvas.width,
         topN:    stagingObj.top    / canvas.height,
@@ -306,46 +349,67 @@ function confirmPlace() {
         scaleYN: stagingObj.scaleY * naturalH / canvas.height
     });
 
-    // ── Keep staging alive: restart at a small offset so the user can
-    //    see the object was placed and immediately place another one.
-    const OFFSET  = Math.round(canvas.width * 0.04);   // ~4% canvas width
+    myPlacedKeys.push(key);
+    updateUndoButton();
+    startCooldown();
+
+    // ── Persist staging: restart with ⅕ offset (≈0.8 % of canvas width)
+    const OFFSET  = Math.round(canvas.width * 0.008);
     const prevL   = stagingObj.left;
     const prevT   = stagingObj.top;
     const prevSX  = stagingObj.scaleX;
     const prevSY  = stagingObj.scaleY;
     const prevAng = stagingObj.angle;
+    const prevFX  = stagingFlipped;
     const prevUrl = stagingUrl;
 
     canvas.remove(stagingObj);
     stagingObj = null; stagingUrl = null; stagingLayerIntent = null;
     canvas.renderAll();
 
-    // Clamp offset so it stays within canvas bounds
-    const newLeft = Math.min(canvas.width  - 50, Math.max(10, prevL + OFFSET));
-    const newTop  = Math.min(canvas.height - 50, Math.max(10, prevT + OFFSET));
-
-    startStaging(prevUrl, { left: newLeft, top: newTop, scaleX: prevSX, scaleY: prevSY, angle: prevAng });
+    const newLeft = Math.min(canvas.width  - 20, Math.max(5, prevL + OFFSET));
+    const newTop  = Math.min(canvas.height - 20, Math.max(5, prevT + OFFSET));
+    startStaging(prevUrl, { left: newLeft, top: newTop, scaleX: prevSX, scaleY: prevSY, angle: prevAng, flipX: prevFX });
 }
 
-// cancelPlace can be called silently (no UI hide) when switching animals mid-stage
 function cancelPlace(silent = false) {
     if (stagingObj) {
         canvas.remove(stagingObj);
         canvas.discardActiveObject();
-        stagingObj = null; stagingUrl = null; stagingLayerIntent = null;
+        stagingObj = null; stagingUrl = null; stagingLayerIntent = null; stagingFlipped = false;
         canvas.renderAll();
     }
     if (!silent) hideStagingUI();
 }
 
 
-// ── 9. STAGING UI SHOW / HIDE ────────────────────────────────
+// ── 10. UNDO ─────────────────────────────────────────────────
+function undoLastPlace() {
+    if (myPlacedKeys.length === 0) return;
+    const key = myPlacedKeys.pop();
+    objectsRef.child(key).remove();
+    updateUndoButton();
+}
+
+function updateUndoButton() {
+    const btn = document.getElementById('btn-undo');
+    if (!btn) return;
+    btn.disabled = myPlacedKeys.length === 0;
+}
+
+
+// ── 11. STAGING UI ───────────────────────────────────────────
 function showStagingUI() {
     const total  = getPlacedObjects().length + 1;
     const slider = document.getElementById('layer-slider');
     slider.min = 1; slider.max = total; slider.value = total;
     stagingLayerIntent = { fromTop: 0 };
     updateLayerLabel(total, total);
+
+    // Sync flip button visual state
+    document.getElementById('btn-flip').classList.toggle('flipped', stagingFlipped);
+
+    updateCooldownUI();   // reflect any active cooldown on the button
     document.getElementById('staging-bar').classList.add('active');
 }
 
@@ -354,7 +418,7 @@ function hideStagingUI() {
 }
 
 
-// ── 10. LOCK HELPER ──────────────────────────────────────────
+// ── 12. LOCK HELPER ──────────────────────────────────────────
 function lockObject(obj) {
     obj.set({
         selectable: false, evented: false,
@@ -366,7 +430,7 @@ function lockObject(obj) {
 }
 
 
-// ── 11. Z-ORDER ──────────────────────────────────────────────
+// ── 13. Z-ORDER ──────────────────────────────────────────────
 function applyZOrder() {
     const placed = getPlacedObjects().sort((a,b) => (a.zIndex??0)-(b.zIndex??0));
     if (!stagingObj) { placed.forEach(o => canvas.bringToFront(o)); canvas.renderAll(); return; }
@@ -396,9 +460,8 @@ canvas.on('mouse:up', () => {
 });
 
 
-// ── 12. ZOOM & PAN ───────────────────────────────────────────
-const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 8;
+// ── 14. ZOOM & PAN ───────────────────────────────────────────
+const MIN_ZOOM = 0.4, MAX_ZOOM = 10;
 
 // Scroll-wheel zoom (desktop)
 canvas.wrapperEl.addEventListener('wheel', (e) => {
@@ -406,28 +469,19 @@ canvas.wrapperEl.addEventListener('wheel', (e) => {
     const rect  = canvas.wrapperEl.getBoundingClientRect();
     const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, canvas.getZoom() * factor));
-    canvas.zoomToPoint(point, newZoom);
+    canvas.zoomToPoint(point, Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, canvas.getZoom() * factor)));
     canvas.renderAll();
 }, { passive: false });
 
 // Pinch-to-zoom + two-finger pan (mobile)
-let pinchStartDist = null;
-let pinchStartZoom = null;
-let pinchLastMid   = null;
+let pinchStartDist = null, pinchStartZoom = null, pinchLastMid = null;
 
 function touchPoint(touches, i) {
     const r = canvas.wrapperEl.getBoundingClientRect();
     return { x: touches[i].clientX - r.left, y: touches[i].clientY - r.top };
 }
-function touchDist(touches) {
-    const a = touchPoint(touches,0), b = touchPoint(touches,1);
-    return Math.hypot(b.x-a.x, b.y-a.y);
-}
-function touchMid(touches) {
-    const a = touchPoint(touches,0), b = touchPoint(touches,1);
-    return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
-}
+function touchDist(touches) { const a=touchPoint(touches,0),b=touchPoint(touches,1); return Math.hypot(b.x-a.x,b.y-a.y); }
+function touchMid(touches)  { const a=touchPoint(touches,0),b=touchPoint(touches,1); return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
 
 canvas.wrapperEl.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
@@ -443,13 +497,7 @@ canvas.wrapperEl.addEventListener('touchmove', (e) => {
     e.preventDefault();
     const dist = touchDist(e.touches);
     const mid  = touchMid(e.touches);
-
-    // Zoom relative to pinch-start (smoother than incremental)
-    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM,
-        pinchStartZoom * (dist / pinchStartDist)));
-    canvas.zoomToPoint(mid, newZoom);
-
-    // Pan from midpoint delta
+    canvas.zoomToPoint(mid, Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStartZoom * (dist / pinchStartDist))));
     if (pinchLastMid) {
         const vpt = canvas.viewportTransform;
         vpt[4] += mid.x - pinchLastMid.x;
@@ -460,32 +508,27 @@ canvas.wrapperEl.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 canvas.wrapperEl.addEventListener('touchend', (e) => {
-    if (e.touches.length < 2) {
-        pinchStartDist = null; pinchStartZoom = null; pinchLastMid = null;
-    }
+    if (e.touches.length < 2) { pinchStartDist = pinchStartZoom = pinchLastMid = null; }
 });
 
-// Single-finger pan on empty canvas when NOT staging
-let isPanning  = false;
-let lastPanPt  = null;
+// Single-finger pan on empty canvas (not staging)
+let isPanning = false, lastPanPt = null;
 
 canvas.on('mouse:down', (opt) => {
     if (!stagingObj && !opt.target) {
-        isPanning = true;
+        isPanning  = true;
         const e = opt.e;
-        lastPanPt = e.touches
-            ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
-            : { x: e.clientX,            y: e.clientY            };
+        lastPanPt  = e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+                               : { x: e.clientX, y: e.clientY };
         canvas.defaultCursor = 'grabbing';
     }
 });
 
 canvas.on('mouse:move', (opt) => {
     if (!isPanning || !lastPanPt) return;
-    const e = opt.e;
-    const cur = e.touches
-        ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
-        : { x: e.clientX,            y: e.clientY            };
+    const e   = opt.e;
+    const cur = e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+                          : { x: e.clientX, y: e.clientY };
     const vpt = canvas.viewportTransform;
     vpt[4] += cur.x - lastPanPt.x;
     vpt[5] += cur.y - lastPanPt.y;
@@ -493,32 +536,161 @@ canvas.on('mouse:move', (opt) => {
     lastPanPt = cur;
 });
 
-canvas.on('mouse:up', () => {
-    isPanning = false; lastPanPt = null;
-    canvas.defaultCursor = 'default';
-});
+canvas.on('mouse:up', () => { isPanning = false; lastPanPt = null; canvas.defaultCursor = 'default'; });
 
 function resetZoom() {
-    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    canvas.setViewportTransform([1,0,0,1,0,0]);
     canvas.renderAll();
 }
 
 
-// ── 13. SIDEBAR TOGGLE (mobile) ──────────────────────────────
+// ── 15. DISPLAY / KIOSK MODE ─────────────────────────────────
+let displayMode = false;
+
+function toggleDisplayMode() {
+    displayMode = !displayMode;
+    document.body.classList.toggle('display-mode', displayMode);
+    // Entering display mode cancels any active staging (clean projection)
+    if (displayMode && stagingObj) cancelPlace(true);
+}
+
+
+// ── 16. TEACHER MODE ─────────────────────────────────────────
+let isTeacherMode   = false;
+let teacherSettings = { locked: false, overlayEnabled: true };
+
+// Listen for settings pushed by teacher (syncs to all clients)
+teacherSettingsRef.on('value', (snapshot) => {
+    const s = snapshot.val() || {};
+    teacherSettings = {
+        locked:         s.locked         ?? false,
+        overlayEnabled: s.overlayEnabled ?? true
+    };
+    applyTeacherSettings();
+});
+
+function applyTeacherSettings() {
+    // Lock / unlock animal buttons
+    document.querySelectorAll('#button-container button').forEach(btn => {
+        btn.disabled = teacherSettings.locked;
+    });
+
+    // If locked mid-staging, cancel immediately
+    if (teacherSettings.locked && stagingObj) cancelPlace();
+
+    // Locked notice banner
+    const notice = document.getElementById('locked-notice');
+    if (notice) notice.style.display = teacherSettings.locked ? 'block' : 'none';
+
+    // Show/hide overlay controls section
+    const overlayCtrl = document.getElementById('overlay-controls');
+    const hr = overlayCtrl ? overlayCtrl.previousElementSibling : null;
+    if (overlayCtrl) overlayCtrl.style.display = teacherSettings.overlayEnabled ? '' : 'none';
+    if (hr && hr.tagName === 'HR') hr.style.display = teacherSettings.overlayEnabled ? '' : 'none';
+
+    // Update teacher panel buttons
+    const lockBtn = document.getElementById('tp-lock-btn');
+    if (lockBtn) {
+        lockBtn.textContent = teacherSettings.locked ? '🔒 Locked' : '🔓 Unlocked';
+        lockBtn.classList.toggle('tp-active', teacherSettings.locked);
+    }
+    const overlayBtn = document.getElementById('tp-overlay-btn');
+    if (overlayBtn) {
+        overlayBtn.textContent = teacherSettings.overlayEnabled ? '👁 Visible' : '🚫 Hidden';
+        overlayBtn.classList.toggle('tp-active', !teacherSettings.overlayEnabled);
+    }
+}
+
+function openTeacherModal() {
+    if (isTeacherMode) {
+        // Already authenticated — just show the panel again
+        document.getElementById('teacher-panel').classList.add('active');
+        return;
+    }
+    const modal = document.getElementById('teacher-modal');
+    modal.classList.add('active');
+    document.getElementById('teacher-password').value = '';
+    document.getElementById('teacher-pw-error').textContent = '';
+    setTimeout(() => document.getElementById('teacher-password').focus(), 100);
+}
+
+function closeTeacherModal() {
+    document.getElementById('teacher-modal').classList.remove('active');
+}
+
+function submitTeacherPassword() {
+    const pw = document.getElementById('teacher-password').value;
+    if (pw === TEACHER_PASSWORD) {
+        isTeacherMode = true;
+        closeTeacherModal();
+        document.getElementById('teacher-panel').classList.add('active');
+    } else {
+        document.getElementById('teacher-pw-error').textContent = 'Incorrect password';
+        document.getElementById('teacher-password').select();
+    }
+}
+
+function exitTeacherMode() {
+    isTeacherMode = false;
+    document.getElementById('teacher-panel').classList.remove('active');
+}
+
+function teacherToggleLock() {
+    teacherSettingsRef.update({ locked: !teacherSettings.locked });
+}
+
+function teacherToggleOverlay() {
+    teacherSettingsRef.update({ overlayEnabled: !teacherSettings.overlayEnabled });
+}
+
+function teacherClearAll() {
+    if (window.confirm('Clear everything from the canvas for all students?')) clearOcean();
+}
+
+
+// ── 17. HELP MODAL ───────────────────────────────────────────
+function openHelp()  { document.getElementById('help-modal').classList.add('active'); }
+function closeHelp() { document.getElementById('help-modal').classList.remove('active'); }
+
+
+// ── 18. SIDEBAR TOGGLE (mobile) ──────────────────────────────
 function toggleSidebar() {
     const ctrl = document.getElementById('controls');
     const btn  = document.getElementById('sidebar-toggle');
     const open = ctrl.classList.toggle('open');
     btn.textContent = open ? '✕' : '☰';
 }
-
 function closeSidebar() {
     document.getElementById('controls').classList.remove('open');
     document.getElementById('sidebar-toggle').textContent = '☰';
 }
 
 
-// ── 14. FIREBASE → CANVAS: new object ────────────────────────
+// ── 19. KEYBOARD SHORTCUTS ───────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+H — toggle display/kiosk mode
+    if (e.ctrlKey && e.shiftKey && e.key === 'H') {
+        e.preventDefault();
+        toggleDisplayMode();
+        return;
+    }
+    // Ctrl+Shift+T — toggle teacher mode
+    if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        if (isTeacherMode) exitTeacherMode();
+        else openTeacherModal();
+        return;
+    }
+    // Escape — close any open modal or exit display mode
+    if (e.key === 'Escape') {
+        if (displayMode) { toggleDisplayMode(); return; }
+        closeTeacherModal();
+        closeHelp();
+    }
+});
+
+
+// ── 20. FIREBASE → CANVAS: new object ────────────────────────
 objectsRef.on('child_added', (snapshot) => {
     const data = snapshot.val();
     if (canvas.getObjects().find(o => o.id === snapshot.key)) return;
@@ -533,13 +705,17 @@ objectsRef.on('child_added', (snapshot) => {
             scaleX = data.scaleXN * canvas.width  / nW;
             scaleY = data.scaleYN * canvas.height / nH;
         } else {
-            // Legacy absolute-pixel fallback
             left = data.left; top = data.top; scaleX = data.scaleX; scaleY = data.scaleY;
         }
 
-        img.set({ left, top, scaleX, scaleY, angle: data.angle, id: snapshot.key, zIndex: data.zIndex ?? 0 });
+        img.set({ left, top, scaleX, scaleY,
+                  angle: data.angle, flipX: data.flipX ?? false,
+                  id: snapshot.key, zIndex: data.zIndex ?? 0 });
+
         img._normCoords = data.leftN !== undefined
-            ? { leftN: data.leftN, topN: data.topN, scaleXN: data.scaleXN, scaleYN: data.scaleYN, naturalW: nW, naturalH: nH }
+            ? { leftN: data.leftN, topN: data.topN,
+                scaleXN: data.scaleXN, scaleYN: data.scaleYN,
+                naturalW: nW, naturalH: nH }
             : null;
 
         lockObject(img);
@@ -550,7 +726,7 @@ objectsRef.on('child_added', (snapshot) => {
 });
 
 
-// ── 15. FIREBASE → CANVAS: updated / removed ─────────────────
+// ── 21. FIREBASE → CANVAS: updated / removed ─────────────────
 objectsRef.on('child_changed', (snapshot) => {
     const data = snapshot.val();
     const obj  = canvas.getObjects().find(o => o.id === snapshot.key);
@@ -566,7 +742,7 @@ objectsRef.on('child_removed', (snapshot) => {
     if (stagingObj) updateStagingSliderRange();
 });
 
-// Full wipe (Reset All) — overlayImage is untouched
+// Full wipe — overlayImage is untouched (not in getObjects())
 objectsRef.on('value', (snapshot) => {
     if (!snapshot.exists()) {
         canvas.getObjects()
@@ -577,7 +753,7 @@ objectsRef.on('value', (snapshot) => {
 });
 
 
-// ── 16. RESET ALL ────────────────────────────────────────────
+// ── 22. RESET ALL ────────────────────────────────────────────
 function clearOcean() {
     objectsRef.set(null);
     canvas.getObjects()
@@ -587,7 +763,7 @@ function clearOcean() {
 }
 
 
-// ── 17. QR CODE ──────────────────────────────────────────────
+// ── 23. QR CODE ──────────────────────────────────────────────
 new QRCode(document.getElementById('qrcode'), {
     text: window.location.href, width: 128, height: 128
 });
