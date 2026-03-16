@@ -37,8 +37,13 @@
             top: 50% !important;
             left: 50% !important;
             transform: translate(-50%, -50%) !important;
-            /* Black border around the artwork zone */
-            box-shadow: 0 0 0 3px #000, 0 0 0 5px rgba(126,207,255,0.12), 0 0 50px rgba(0,0,0,0.85);
+            /* Solid black border around the artwork zone.
+               outline sits outside the element without affecting layout;
+               box-shadow adds a soft glow outside that.
+               overflow:hidden clips any zoomed/panned objects at the edge. */
+            outline: 3px solid #000;
+            box-shadow: 0 0 0 6px rgba(0,0,0,0.6), 0 0 40px rgba(0,0,0,0.9);
+            overflow: hidden;
         }
 
         /* ── Hamburger (mobile only) ── */
@@ -153,7 +158,6 @@
         #btn-undo:not(:disabled) { color: #7ecfff; background: rgba(58,158,255,0.25); }
         #btn-undo:disabled { cursor: not-allowed; }
         #btn-reset-view { background: rgba(255,255,255,0.1); color: #7ecfff; border: 1px solid rgba(126,207,255,0.3) !important; }
-        #btn-reset       { background: #8b0000; color: #fff; }
 
         /* ── Teacher entry (discreet) ── */
         .teacher-entry-wrap { text-align: center; margin-top: 2px; }
@@ -380,9 +384,9 @@
         </div>
         <div id="overlay-opacity-row">
             <label for="overlay-opacity">Transparency</label>
-            <input type="range" id="overlay-opacity" min="0" max="1" step="0.05" value="0.5"
+            <input type="range" id="overlay-opacity" min="0" max="1" step="0.05" value="0"
                    oninput="setOverlayOpacity(this.value); document.getElementById('opacity-display').textContent=Math.round(this.value*100)+'%';">
-            <span id="opacity-display">50%</span>
+            <span id="opacity-display">0%</span>
         </div>
     </div>
 
@@ -390,7 +394,6 @@
     <div class="action-row">
         <button id="btn-undo" onclick="undoLastPlace()" disabled>↩ Undo Last</button>
         <button id="btn-reset-view" onclick="resetZoom()">🔍 Reset View</button>
-        <button id="btn-reset" onclick="clearOcean()">⚠ Reset All</button>
     </div>
 
     <div class="teacher-entry-wrap">
