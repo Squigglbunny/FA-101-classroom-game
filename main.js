@@ -571,6 +571,13 @@ canvas.wrapperEl.addEventListener('touchend', (e) => {
 let isPanning = false, lastPanPt = null;
 
 canvas.on('mouse:down', (opt) => {
+    // Teacher delete mode: tap any placed object to remove it
+    if (teacherDeleteMode && opt.target && opt.target.id &&
+        opt.target.id !== '__staging__' && !BORDER_IDS.includes(opt.target.id)) {
+        objectsRef.child(opt.target.id).remove();
+        return;
+    }
+
     if (!stagingObj && !opt.target) {
         isPanning  = true;
         const e = opt.e;
@@ -687,6 +694,7 @@ function submitTeacherPassword() {
 }
 
 function exitTeacherMode() {
+    exitDeleteMode();
     isTeacherMode = false;
     document.getElementById('teacher-panel').classList.remove('active');
 }
@@ -697,6 +705,39 @@ function teacherToggleLock() {
 
 function teacherToggleOverlay() {
     teacherSettingsRef.update({ overlayEnabled: !teacherSettings.overlayEnabled });
+}
+
+// ── Teacher delete mode ───────────────────────────────────────
+let teacherDeleteMode = false;
+
+function teacherToggleDeleteMode() {
+    teacherDeleteMode = !teacherDeleteMode;
+    document.body.classList.toggle('teacher-delete-mode', teacherDeleteMode);
+
+    const btn = document.getElementById('tp-delete-btn');
+    if (btn) {
+        btn.textContent = teacherDeleteMode ? '🗑 On — tap to delete' : '🗑 Off';
+        btn.classList.toggle('tp-active', teacherDeleteMode);
+    }
+
+    // While in delete mode, placed objects need to be evented so clicks register
+    canvas.getObjects()
+        .filter(o => !BORDER_IDS.includes(o.id) && o.id !== '__staging__')
+        .forEach(o => { o.evented = teacherDeleteMode; });
+
+    canvas.renderAll();
+}
+
+function exitDeleteMode() {
+    if (!teacherDeleteMode) return;
+    teacherDeleteMode = false;
+    document.body.classList.remove('teacher-delete-mode');
+    const btn = document.getElementById('tp-delete-btn');
+    if (btn) { btn.textContent = '🗑 Off'; btn.classList.remove('tp-active'); }
+    canvas.getObjects()
+        .filter(o => !BORDER_IDS.includes(o.id) && o.id !== '__staging__')
+        .forEach(o => { o.evented = false; });
+    canvas.renderAll();
 }
 
 function teacherClearAll() {
@@ -775,6 +816,8 @@ objectsRef.on('child_added', (snapshot) => {
             : null;
 
         lockObject(img);
+        // If teacher delete mode is already active, make this object tappable
+        if (teacherDeleteMode) img.evented = true;
         canvas.add(img);
         applyZOrder();
         if (stagingObj) updateStagingSliderRange();
