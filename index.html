@@ -372,6 +372,9 @@
             .staging-actions button { padding: 10px 4px; font-size: 12px; }
         }
 
+        /* ── Teacher delete mode cursor ── */
+        body.teacher-delete-mode .canvas-container { cursor: crosshair !important; }
+
         canvas { display: block; }
     </style>
 </head>
@@ -435,6 +438,10 @@
     <div class="tp-row">
         <span>Overlay Controls</span>
         <button id="tp-overlay-btn" class="tp-btn" onclick="teacherToggleOverlay()">👁 Visible</button>
+    </div>
+    <div class="tp-row">
+        <span>Delete Objects</span>
+        <button id="tp-delete-btn" class="tp-btn" onclick="teacherToggleDeleteMode()">🗑 Off</button>
     </div>
     <button class="tp-danger" onclick="teacherClearAll()">🗑 Clear All</button>
 </div>
